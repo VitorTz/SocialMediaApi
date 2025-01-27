@@ -12,7 +12,7 @@ CREATE TABLE users (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     is_verified BOOLEAN DEFAULT false,
-    CONSTRAINT chk_user_birthdate CHECK (birthdate < NOW()),
+    CONSTRAINT chk_user_age CHECK (birthdate <= CURRENT_DATE - INTERVAL '16 years'),
     CONSTRAINT chk_user_username_length CHECK (LENGTH(username) <= 32),
     CONSTRAINT chk_user_email_length CHECK (LENGTH(email) <= 255),
     CONSTRAINT chk_user_email_format CHECK (email ~* '^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$')
@@ -22,7 +22,7 @@ CREATE TABLE users (
 CREATE TABLE posts (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL,
-    title VARCHAR(128) NOT NULL,
+    title VARCHAR(256) NOT NULL,
     content VARCHAR(8096),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -44,27 +44,22 @@ CREATE TABLE comments (
 );
 
 
-CREATE TABLE post_likes (
+CREATE TABLE likes (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL,
-    post_id INTEGER NOT NULL,
+    post_id INTEGER,
+    comment_id INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chk_post_likes_unique_like UNIQUE (user_id, post_id),
     CONSTRAINT fk_post_like_post FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE,
-    CONSTRAINT fk_user_line_post FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-);
-
-
-CREATE TABLE comments_likes (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    post_id INTEGER NOT NULL, 
-    comment_id INTEGER NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chk_comment_likes_unique_like UNIQUE (user_id, comment_id),
-    CONSTRAINT fk_comment_like_comment FOREIGN KEY (comment_id) REFERENCES comments (id) ON DELETE CASCADE,
-    CONSTRAINT fk_comment_like_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-    CONSTRAINT fk_comment_like_post FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE
+    CONSTRAINT fk_post_like_comment FOREIGN KEY (comment_id) REFERENCES comments (id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_like FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,    
+    CONSTRAINT chk_post_or_comment_not_null CHECK (
+        (post_id IS NOT NULL AND comment_id IS NULL) 
+        OR
+        (post_id IS NULL AND comment_id IS NOT NULL)
+    ),    
+    CONSTRAINT unique_user_like UNIQUE (user_id, post_id),
+    CONSTRAINT unique_user_comment_like UNIQUE (user_id, comment_id)
 );
 
 
@@ -72,19 +67,19 @@ CREATE TABLE followers (
     id SERIAL PRIMARY KEY,
     follower_id INT NOT NULL, -- usuario que esta seguindo
     followed_id INT NOT NULL, -- usuario que esta sendo seguido
-    followed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(follower_id, followed_id),
-    CONSTRAINT chk_followers_not_self_follow CHECK (follower_id != followed_id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,    
+    CONSTRAINT unique_follow UNIQUE (follower_id, followed_id),
+    CONSTRAINT chk_not_self_follow CHECK (follower_id != followed_id),
     CONSTRAINT fk_follower FOREIGN KEY (follower_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT fk_followed FOREIGN KEY (followed_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
 
 CREATE INDEX idx_posts_user_id ON posts(user_id);
+CREATE INDEX idx_comment_like_id ON likes(comment_id);
+CREATE INDEX idx_post_like_id ON likes(post_id);
 CREATE INDEX idx_comments_post_id ON comments(post_id);
-CREATE INDEX idx_comments_user_id ON comments(user_id);
 CREATE INDEX idx_posts_created_at ON posts (created_at);
-CREATE INDEX idx_comments_created_at ON comments (created_at);
 CREATE INDEX idx_comments_path_gist ON comments USING GIST (path);
 
 
@@ -140,6 +135,22 @@ $$
     )
   FROM children c
 $$;
+
+CREATE OR REPLACE FUNCTION ensure_same_post() RETURNS TRIGGER AS $$
+BEGIN
+    -- Ensure the parent comment and the child comment belong to the same post
+    IF (SELECT post_id FROM comments WHERE id = NEW.parent_comment_id) <> NEW.post_id THEN
+        RAISE EXCEPTION 'Parent comment must belong to the same post as the child comment.';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER check_comment_post
+BEFORE INSERT OR UPDATE ON comments
+FOR EACH ROW
+WHEN (NEW.parent_comment_id IS NOT NULL)
+EXECUTE FUNCTION ensure_same_post();
 
 
 CREATE OR REPLACE FUNCTION set_updated_at()

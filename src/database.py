@@ -6,6 +6,7 @@ from psycopg.rows import dict_row
 import psycopg
 import os
 
+
 load_dotenv('.env')
 
 
@@ -100,6 +101,10 @@ def db_create(query: str, params: tuple[str]) -> Response:
                 print(e)
                 conn.rollback()
                 return Response(status_code=status.HTTP_400_BAD_REQUEST)
+            except psycopg.errors.ForeignKeyViolation as e:
+                print(e)
+                conn.rollback()
+                return Response(status_code=status.HTTP_404_NOT_FOUND)
             except Exception as e:
                 print(type(e))
                 print(e)
