@@ -1,5 +1,5 @@
 from fastapi import APIRouter, status, HTTPException
-from src.models import User, UserGetOne, UserUpdate
+from src.models.user import User, UserUnique, UserUpdate
 from src import database
 
 users_router = APIRouter()
@@ -43,7 +43,7 @@ def read_users():
             id,
             username,
             email,
-            full_name,
+            full_name,            
             bio,
             TO_CHAR(birthdate, 'DD-MM-YYYY') AS birthdate,
             TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') AS created_at,
@@ -55,7 +55,7 @@ def read_users():
         
 
 @users_router.get("/users/one")
-def read_one_user(user: UserGetOne):
+def read_one_user(user: UserUnique):
     
     if user.id is not None:
         return database.db_read(QUERY_GET_USER_BY_ID, (str(user.id), ))
@@ -74,15 +74,17 @@ def create_user(user: User):
                 username,
                 email,
                 full_name,
+                hashed_password,
                 bio,
                 birthdate,
                 is_verified
-            ) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
+            ) VALUES (TRIM(%s), TRIM(%s), TRIM(%s), %s, %s, %s) RETURNING id;
         """,
         (
             user.username,
             user.email,
             user.full_name,
+            user.hashed_password,
             user.bio,
             user.birthdate,
             user.is_verified
@@ -98,25 +100,27 @@ def update_user(user: UserUpdate):
                 username = COALESCE(%s, username),
                 email = COALESCE(%s, email),
                 full_name = COALESCE(%s, full_name),
+                hashed_password = COALESCE(%s, hashed_password),
                 bio = COALESCE(%s, bio),
                 birthdate = COALESCE(%s, birthdate),
                 is_verified = COALESCE(%s, is_verified)
             WHERE id = %s RETURNING id;
         """,
         (
-            user.username,
-            user.email,
-            user.full_name,
-            user.bio,
+            user.username.strip(),
+            user.email.strip(),
+            user.full_name.strip(),
+            user.hashed_password.strip(),
+            user.bio.strip(),
             user.birthdate,
-            user.is_verified,            
+            user.is_verified,
             str(user.id)
         )
     )
 
 
 @users_router.delete("/users")
-def delete_user(user: UserUpdate):
+def delete_user(user: UserUnique):
     return database.db_delete(
         "DELETE FROM users WHERE id = %s RETURNING id;",        
         (str(user.id), )
