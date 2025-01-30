@@ -1,14 +1,13 @@
 from fastapi import APIRouter, status, HTTPException
-from fastapi.responses import JSONResponse
-from src.models.user import User, UserUnique, UserUpdate, UserReadOnly
-from typing import List
+from fastapi.responses import JSONResponse, Response
+from src.models.user import User, UserUnique, UserUpdate
 from src import database
 
 users_router = APIRouter()
 
 
 QUERY_GET_USER_BY_ID = """
-    SELECT 
+    SELECT       
         id,
         username,
         email,
@@ -23,8 +22,8 @@ QUERY_GET_USER_BY_ID = """
 
 
 QUERY_GET_USER_BY_USERNAME = """
-    SELECT 
-        id,
+    SELECT
+        id,    
         username,
         email,
         full_name,
@@ -37,28 +36,8 @@ QUERY_GET_USER_BY_USERNAME = """
 """
 
 
-@users_router.get("/users", response_model=List[UserReadOnly])
-def read_users():
-    r: database.DataBaseResponse = database.db_read_fetchall(
-        """
-            SELECT 
-                id,
-                username,
-                email,
-                full_name,            
-                bio,
-                TO_CHAR(birthdate, 'DD-MM-YYYY') AS birthdate,
-                TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') AS created_at,
-                TO_CHAR(updated_at, 'DD-MM-YYYY HH24:MI:SS') AS updated_at,
-                is_verified
-            FROM users;
-        """
-    )
-    return JSONResponse(r.content, r.status_code)
-        
-
-@users_router.get("/users/one", response_model=UserReadOnly)
-def read_one_user(user: UserUnique):    
+@users_router.get("/users", response_model=User)
+def read_user(user: UserUnique) -> JSONResponse:
     if user.user_id is not None:
         r: database.DataBaseResponse = database.db_read_fetchone(QUERY_GET_USER_BY_ID, (str(user.user_id), ))
         return JSONResponse(r.content, r.status_code)
@@ -71,7 +50,7 @@ def read_one_user(user: UserUnique):
 
 
 @users_router.post("/users")
-def create_user(user: User):
+def create_user(user: User) -> Response:
     return database.db_create(
         """
             INSERT INTO users (
@@ -97,7 +76,7 @@ def create_user(user: User):
 
 
 @users_router.put("/users")
-def update_user(user: UserUpdate):
+def update_user(user: UserUpdate) -> Response:
     return database.db_update(
         """
             UPDATE users SET
@@ -120,12 +99,12 @@ def update_user(user: UserUpdate):
             user.is_verified,
             str(user.user_id)
         )
-    )
+    ).to_response()
 
 
 @users_router.delete("/users")
-def delete_user(user: UserUnique):
+def delete_user(user: UserUnique) -> Response:
     return database.db_delete(
-        "DELETE FROM users WHERE id = %s RETURNING id;",        
+        "DELETE FROM users WHERE id = %s RETURNING id;",
         (str(user.user_id), )
-    )
+    ).to_response()

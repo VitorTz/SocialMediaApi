@@ -12,12 +12,12 @@ class Message(BaseModel):
 
 class MessageUnique(BaseModel):
 
-    id: int
+    message_id: int
 
 
 class MessageUpdate(BaseModel):
 
-    id: int
+    message_id: int
     conversation_id: int
     sender_id: int
     content: Optional[str]    

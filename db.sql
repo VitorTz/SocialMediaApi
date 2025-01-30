@@ -41,15 +41,11 @@ VALUES
     ('ja', 'Japanese', '日本語');
 
 
-CREATE TABLE post_status (
-    status VARCHAR(32) PRIMARY KEY
+CREATE TYPE post_status_type AS ENUM (
+    'draft', 
+    'published',
+    'archived'
 );
-
-
-INSERT INTO post_status (status) 
-VALUES
-    ('draft'), 
-    ('published');
 
 
 CREATE TABLE posts (
@@ -59,7 +55,7 @@ CREATE TABLE posts (
     content TEXT,
     is_pinned BOOLEAN NOT NULL DEFAULT false,    
     language_code VARCHAR(8),
-    status VARCHAR(32),
+    post_status_type NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,        
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -69,6 +65,9 @@ CREATE TABLE posts (
 CREATE INDEX idx_posts_user_id ON posts(user_id);
 CREATE INDEX idx_posts_language ON posts(language_code);
 CREATE INDEX idx_posts_created_at ON posts(created_at);
+CREATE INDEX idx_posts_published ON posts(status) WHERE status = 'published';
+CREATE INDEX idx_posts_updated_at ON posts(updated_at);
+CREATE INDEX idx_posts_user_status ON posts(user_id, status);
 
 
 CREATE TABLE post_likes (
@@ -214,8 +213,7 @@ CREATE TABLE messages (
     CONSTRAINT fk_reply_to_id FOREIGN KEY (reply_to_id) REFERENCES messages(id) ON DELETE SET NULL
 );
 CREATE INDEX idx_messages_conversation ON messages(conversation_id);
-CREATE INDEX idx_messages_created ON messages(created_at);
-
+CREATE INDEX idx_messages_conversation_created ON messages(conversation_id, created_at);
 
 -- Tabela para mensagens lidas em conversas privadas entre usuários
 CREATE TABLE message_reads (
@@ -312,7 +310,7 @@ BEGIN
             c.updated_at,
             c.path,
             jsonb_build_object(
-                'id', c.id,
+                'comment_id', c.id,
                 'content', c.content,
                 'user_id', c.user_id,
                 'post_id', c.post_id,
@@ -336,7 +334,7 @@ BEGIN
             c.updated_at,
             c.path,
             jsonb_build_object(
-                'id', c.id,
+                'comment_id', c.id,
                 'content', c.content,
                 'user_id', c.user_id,
                 'post_id', c.post_id,
@@ -377,7 +375,7 @@ BEGIN
             c.updated_at,
             c.path,
             jsonb_build_object(
-                'id', c.id,
+                'comment_id', c.id,
                 'content', c.content,
                 'user_id', c.user_id,
                 'post_id', c.post_id,
@@ -404,7 +402,7 @@ BEGIN
             c.updated_at,
             c.path,
             jsonb_build_object(
-                'id', c.id,
+                'comment_id', c.id,
                 'content', c.content,
                 'user_id', c.user_id,
                 'post_id', c.post_id,
@@ -513,25 +511,18 @@ AFTER INSERT ON blocks
 FOR EACH ROW EXECUTE FUNCTION delete_relationships_on_block();
 
 
--- Função para limitar o histórico de posts vistos recentimente
--- por um usuário em 20 posts
-CREATE OR REPLACE FUNCTION limit_recent_viewed_posts()
+
+-- Atualizar last_interaction
+CREATE OR REPLACE FUNCTION update_conversation_interaction()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Exclui registros antigos além do 20º mais recente para o usuário
-    DELETE FROM user_viewed_posts
-    WHERE (user_id, viewed_at) IN (
-        SELECT user_id, viewed_at
-        FROM user_viewed_posts
-        WHERE user_id = NEW.user_id
-        ORDER BY viewed_at DESC
-        OFFSET 40  -- Mantém apenas os 40 primeiros
-    );
+    UPDATE direct_conversations
+    SET last_interaction_at = NEW.created_at
+    WHERE id = NEW.conversation_id;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger para limit_recent_viewed_posts
-CREATE TRIGGER trg_limit_recent_posts
-AFTER INSERT OR UPDATE ON user_viewed_posts
-FOR EACH ROW EXECUTE FUNCTION limit_recent_viewed_posts();
+CREATE TRIGGER trg_update_conversation_interaction
+AFTER INSERT ON messages
+FOR EACH ROW EXECUTE FUNCTION update_conversation_interaction();

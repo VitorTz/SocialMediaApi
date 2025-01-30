@@ -9,6 +9,9 @@ class Comment(BaseModel):
     post_id: int
     content: str
     parent_comment_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    thread: Optional[list['Comment']] = []
 
 
 class CommentUnique(BaseModel):
@@ -21,13 +24,3 @@ class CommentUpdate(BaseModel):
     comment_id: int
     content: Optional[str] = None
 
-
-class CommentView(BaseModel):
-
-    user_id: int
-    post_id: int
-    content: str
-    parent_comment_id: Optional[int] = None
-    thread: list['CommentView']
-    created_at: datetime
-    updated_at: datetime

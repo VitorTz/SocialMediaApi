@@ -1,10 +1,10 @@
 from dotenv import load_dotenv
 from psycopg_pool import ConnectionPool
-from psycopg import Cursor
 from fastapi.responses import JSONResponse, Response
-from fastapi import status
+from fastapi import status, HTTPException
 from src.models.metric import Metrics
-from typing import Callable
+from src.models.comment import Comment
+from src.util import extract_hashtags
 from psycopg.rows import dict_row
 import psycopg
 import os
@@ -110,31 +110,32 @@ def db_create(query: str, params: tuple[str]) -> DataBaseResponse:
                 return DataBaseResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-def db_update(query: str, params: tuple[str]) -> Response:
+def db_update(query: str, params: tuple[str]) -> DataBaseResponse:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.row_factory = dict_row
             try:
                 cur.execute(query, params)
-                conn.commit()        
+                r = cur.fetchone()
+                conn.commit()
                 if cur.rowcount == 0:
-                    return Response(status_code=status.HTTP_404_NOT_FOUND)                
-                return Response(status_code=status.HTTP_201_CREATED)
+                    return DataBaseResponse(status.HTTP_404_NOT_FOUND)                
+                return DataBaseResponse(status.HTTP_201_CREATED, r)
             except psycopg.errors.UniqueViolation as e:
                 print(e)
                 conn.rollback()
-                return Response(status_code=status.HTTP_409_CONFLICT)
+                return DataBaseResponse(status.HTTP_409_CONFLICT)
             except psycopg.IntegrityError as e:
                 print(e)        
                 conn.rollback()
-                return Response(status_code=status.HTTP_400_BAD_REQUEST)
+                return DataBaseResponse(status.HTTP_400_BAD_REQUEST)
             except Exception as e:
                 print(e)
                 conn.rollback()
-                return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return DataBaseResponse(status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-def db_delete(query: str, params: tuple[str]) -> Response:
+def db_delete(query: str, params: tuple[str]) -> DataBaseResponse:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.row_factory = dict_row
@@ -143,17 +144,17 @@ def db_delete(query: str, params: tuple[str]) -> Response:
                 r = cur.fetchone()
                 conn.commit()
                 if r is None:
-                    return Response(status_code=status.HTTP_404_NOT_FOUND)
-                return Response(status_code=status.HTTP_204_NO_CONTENT)
+                    return DataBaseResponse(status.HTTP_404_NOT_FOUND)
+                return DataBaseResponse(status.HTTP_204_NO_CONTENT, r)
             except Exception as e:
                 print(e)
                 conn.rollback()
-                return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return DataBaseResponse(status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 def db_get_post_metrics(post_id: int) -> Metrics:
     pool = get_db_pool()
-    m = Metrics()
+    metrics = Metrics()
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.row_factory = dict_row
@@ -171,7 +172,7 @@ def db_get_post_metrics(post_id: int) -> Metrics:
                 """,
                 (str(post_id), )
             )
-            m.num_views = cur.fetchone()['num_views']
+            metrics.num_views = cur.fetchone()['num_views']
 
             cur.execute(
                 """
@@ -187,7 +188,7 @@ def db_get_post_metrics(post_id: int) -> Metrics:
                 """,
                 (str(post_id), )
             )
-            m.num_impressions = cur.fetchone()['num_impressions']
+            metrics.num_impressions = cur.fetchone()['num_impressions']
 
             cur.execute(
                 """
@@ -197,21 +198,84 @@ def db_get_post_metrics(post_id: int) -> Metrics:
                 """, (str(post_id),)
                 )
             
-            m.num_likes = cur.fetchone()['like_count']
+            metrics.num_likes = cur.fetchone()['like_count']
+
+            cur.execute(
+                """
+                    SELECT COUNT(*) AS num_comments 
+                        FROM comments 
+                    WHERE post_id = %s;
+                """, (str(post_id), )
+                )
+            
+            metrics.num_comments = cur.fetchone()['num_comments']
+
+    return metrics
+
+
+def db_get_comment_metrics(comment_id: int) -> Metrics:
+    pool = get_db_pool()
+    metrics = Metrics()
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.row_factory = dict_row
+            cur.execute(
+                """
+                SELECT COALESCE(
+                    (
+                        SELECT metric_count 
+                            FROM comment_metrics 
+                            WHERE comment_id = %s
+                        AND metric_type = 'views'
+                    ), 
+                    0
+                ) as num_views;
+                """,
+                (str(comment_id), )
+            )
+            metrics.num_views = cur.fetchone()['num_views']
+
+            cur.execute(
+                """
+                    SELECT COALESCE(
+                    (
+                        SELECT metric_count 
+                            FROM comment_metrics 
+                            WHERE comment_id = %s
+                        AND metric_type = 'impressions'
+                    ), 
+                    0
+                ) as num_impressions;
+                """,
+                (str(comment_id), )
+            )
+            metrics.num_impressions = cur.fetchone()['num_impressions']
 
             cur.execute(
                 """
                     SELECT COUNT(*) AS like_count 
-                        FROM comments 
-                    WHERE post_id = %s;
-                """, (str(post_id),)
+                        FROM comment_likes 
+                    WHERE comment_id = %s;
+                """, (str(comment_id), )
                 )
             
-            m.num_comments = cur.fetchone()['like_count']
+            metrics.num_likes = cur.fetchone()['like_count']
 
-    return m
+            cur.execute(
+                """
+                SELECT COUNT(*) AS num_comments
+                    FROM comments
+                WHERE parent_comment_id = %s;
+                """, (str(comment_id),)
+            )
+            
+            metrics.num_comments = cur.fetchone()['num_comments']
 
-def db_add_hashtags(hashtags: list[str], post_id: int) -> None:
+    return metrics
+
+
+def db_register_post_hashtags(content: str, post_id: int) -> None:
+    hashtags: list[str] = extract_hashtags(content)
     with pool.connection() as conn:
         with conn.cursor() as cur:
             for tag in hashtags:
@@ -235,7 +299,7 @@ def db_add_hashtags(hashtags: list[str], post_id: int) -> None:
                 )
 
 
-def db_post_num_likes(post_id: int) -> int:
+def db_count_post_likes(post_id: int) -> int:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -249,7 +313,7 @@ def db_post_num_likes(post_id: int) -> int:
             return cur.fetchone()['num_likes']
 
 
-def db_comment_num_likes(comment_id: int) -> int:
+def db_count_comment_likes(comment_id: int) -> int:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -263,9 +327,41 @@ def db_comment_num_likes(comment_id: int) -> int:
             return cur.fetchone()['num_likes']
 
 
-def db_post_comments_thread(post_id: int) -> dict[str, str]:
+def db_get_post_comments(post_id: int) -> list[Comment]:
     with pool.connection() as conn:
         with conn.cursor() as cur:
+            cur.row_factory = dict_row
             cur.execute("SELECT get_post_comments(%s);", (str(post_id), ))
-            return cur.fetchall()
+            r = cur.fetchall()
+            if r is None:
+                return []
+            return r
 
+
+def db_get_comment(comment_id: int) -> Comment | None:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.row_factory = dict_row
+            cur.execute("SELECT get_comment_thread(%s);", (str(comment_id), ))
+            r = cur.fetchone()
+            if r is None:
+                None
+            return r            
+
+
+def db_post_add_impressions(post_id: int) -> bool:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                        INSERT INTO post_metrics (post_id, metric_type, metric_count)
+                            VALUES (%s, 'impressions', 1)
+                        ON CONFLICT (post_id, metric_type) DO UPDATE SET metric_count = post_metrics.metric_count + 1;
+                    """,
+                    (str(post_id), )
+                )
+                return True
+            except Exception as e:
+                print(e)
+                return False

@@ -5,20 +5,11 @@ from datetime import date
 
 class User(BaseModel):
     
+    id: int
     username: str
     email: str
     full_name: str
     hashed_password: str
-    bio: str
-    birthdate: date    
-    is_verified: Optional[bool] = False
-
-
-class UserReadOnly(BaseModel):
-    
-    username: str
-    email: str
-    full_name: str    
     bio: str
     birthdate: date    
     is_verified: Optional[bool] = False
