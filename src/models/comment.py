@@ -13,12 +13,12 @@ class Comment(BaseModel):
 
 class CommentUnique(BaseModel):
 
-    id: int
+    comment_id: int
 
 
 class CommentUpdate(BaseModel):
 
-    id: int
+    comment_id: int
     content: Optional[str] = None
 
 

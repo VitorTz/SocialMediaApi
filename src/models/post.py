@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from src.models.metric import Metrics
 from src.models.comment import CommentView
 
 
@@ -17,35 +18,37 @@ class Post(BaseModel):
 
 class PostUnique(BaseModel):
 
-    id: int
+    post_id: int
+    user_id: Optional[int] = None
 
 
 class PostViewUnique(BaseModel):
 
-    id: int
+    post_id: int
     user_id: int
 
 
 class PostView(BaseModel):
     
+    post_id: int
     user_id: int
     title: str
     content: str
-    is_pinned: bool
-    view_count: int
+    is_pinned: bool    
     language_code: str
-    status: str
-    comments: list[CommentView]
-    num_likes: int
+    status: str        
     created_at: datetime
     updated_at: datetime
+    metrics: Metrics
 
 
 class PostUpdate(BaseModel):
 
-    id: int    
+    post_id: int    
     title: Optional[str] = None
     content: Optional[str] = None
     language_code: Optional[str] = None
     status: Optional[str] = None
     is_pinned: Optional[bool] = None
+
+

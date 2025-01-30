@@ -5,6 +5,7 @@ from src.database import get_db_pool
 from src.route.users import users_router
 from src.route.posts import posts_router
 from src.route.comments import comments_router
+from src.route.metrics import metrics_router
 import uvicorn
 import os
 
@@ -25,6 +26,7 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(users_router, prefix="/api", tags=["users"])
 app.include_router(posts_router, prefix="/api", tags=["posts"])
 app.include_router(comments_router, prefix="/api", tags=["comments"])
+app.include_router(metrics_router, prefix="/api", tags=["metrics"])
 
 
 def main() -> None:

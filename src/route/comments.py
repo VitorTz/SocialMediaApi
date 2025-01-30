@@ -13,7 +13,7 @@ def read_one_comment(comment: CommentUnique):
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.row_factory = database.dict_row
-            cur.execute("SELECT get_comment_thread(%s);", (str(comment.id), ))
+            cur.execute("SELECT get_comment_thread(%s);", (str(comment.comment_id), ))
             r = cur.fetchone()
             if r is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -66,7 +66,7 @@ def update_comment(comment: CommentUpdate):
                 content = %s
             WHERE id = %s RETURNING id;
         """,
-        (comment.content, str(comment.id))
+        (comment.content, str(comment.comment_id))
     )
 
 
@@ -74,7 +74,7 @@ def update_comment(comment: CommentUpdate):
 def delete_comment(comment: CommentUnique):
     return database.db_delete(
         "DELETE FROM comments WHERE id = %s RETURNING id;",
-        (str(comment.id), )
+        (str(comment.comment_id), )
     )
 
 
@@ -84,7 +84,7 @@ def comment_num_likes(comment: CommentUnique):
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.row_factory = database.dict_row
-            num_likes = database.db_comment_num_likes(cur, comment.id)
+            num_likes = database.db_comment_num_likes(cur, comment.comment_id)
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content={"data" : num_likes}
@@ -103,7 +103,7 @@ def comment_get_liked_by(comment: CommentUnique):
                         FROM comment_likes
                     WHERE comment_id = %s;
                 """, 
-                (str(comment.id), )
+                (str(comment.comment_id), )
             )            
             return JSONResponse(
                 status_code=status.HTTP_200_OK,

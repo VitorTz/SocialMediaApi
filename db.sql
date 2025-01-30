@@ -1,5 +1,7 @@
+CREATE SCHEMA partman;
 CREATE EXTENSION IF NOT EXISTS ltree;
 CREATE EXTENSION IF NOT EXISTS citext;
+CREATE EXTENSION IF NOT EXISTS pg_partman SCHEMA partman;
 
 
 CREATE TABLE users (
@@ -7,7 +9,7 @@ CREATE TABLE users (
     username CITEXT UNIQUE NOT NULL,
     email CITEXT UNIQUE NOT NULL,
     full_name VARCHAR (64) NOT NULL,
-    hashed_password VARCHAR(256) NOT NULL,
+    hashed_password CHAR(60) NOT NULL,
     bio TEXT,
     birthdate DATE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -22,94 +24,177 @@ CREATE TABLE users (
 
 CREATE TABLE languages (
     code VARCHAR(8) PRIMARY KEY CHECK (code ~ '^[a-z]{2}(-[A-Z]{2})?$'),
-    name VARCHAR(64) NOT NULL, -- Ex: 'Português'
-    native_name VARCHAR(64) -- Ex: 'Português Brasileiro'
+    name VARCHAR(64) NOT NULL,
+    native_name VARCHAR(64)
 );
+
+
+INSERT INTO languages (code, name, native_name)
+VALUES
+    ('zh', 'Chinese', '中文'),
+    ('es', 'Spanish', 'Español'),
+    ('en', 'English', 'English'),
+    ('hi', 'Hindi', 'हिन्दी'),
+    ('ar', 'Arabic', 'العربية'),
+    ('bn', 'Bengali', 'বাংলা'),
+    ('pt', 'Portuguese', 'Português'),    
+    ('ja', 'Japanese', '日本語');
 
 
 CREATE TABLE post_status (
     status VARCHAR(32) PRIMARY KEY
-); -- ('draft', 'published')
+);
+
+
+INSERT INTO post_status (status) 
+VALUES
+    ('draft'), 
+    ('published');
 
 
 CREATE TABLE posts (
-    id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY NOT NULL,
     user_id INTEGER NOT NULL,
     title VARCHAR(256) NOT NULL,
     content TEXT,
-    is_pinned BOOLEAN NOT NULL DEFAULT false,
-    view_count INTEGER DEFAULT 0,
+    is_pinned BOOLEAN NOT NULL DEFAULT false,    
     language_code VARCHAR(8),
     status VARCHAR(32),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,        
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT fk_status FOREIGN KEY (status) REFERENCES post_status (status) ON DELETE CASCADE,
-    CONSTRAINT fk_language_code FOREIGN KEY (language_code) REFERENCES languages (code) ON DELETE CASCADE
+    CONSTRAINT fk_language_code FOREIGN KEY (language_code) REFERENCES languages (code)
 );
 CREATE INDEX idx_posts_user_id ON posts(user_id);
 CREATE INDEX idx_posts_language ON posts(language_code);
 CREATE INDEX idx_posts_created_at ON posts(created_at);
 
 
--- Tabela para guardar histórico de post vistos por um usuário
+CREATE TABLE post_likes (
+    post_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (post_id, user_id),
+    CONSTRAINT fk_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_post_likes ON post_likes (post_id);
+
+-- Histórico de post vistos por um usuário
+-- Um post é considerado visto quanto o usuário clica para entrar na postagem
 CREATE TABLE user_viewed_posts (
     user_id INTEGER NOT NULL,
-    post_id INTEGER NOT NULL,
+    post_id INTEGER NOT NULL, 
     viewed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, post_id)
+    PRIMARY KEY (user_id, post_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE
 ) PARTITION BY HASH (user_id);
--- Partições e indices de user_viewed_posts
 CREATE TABLE user_viewed_posts_0 PARTITION OF user_viewed_posts FOR VALUES WITH (MODULUS 4, REMAINDER 0);
 CREATE TABLE user_viewed_posts_1 PARTITION OF user_viewed_posts FOR VALUES WITH (MODULUS 4, REMAINDER 1);
 CREATE TABLE user_viewed_posts_2 PARTITION OF user_viewed_posts FOR VALUES WITH (MODULUS 4, REMAINDER 2);
 CREATE TABLE user_viewed_posts_3 PARTITION OF user_viewed_posts FOR VALUES WITH (MODULUS 4, REMAINDER 3);
-CREATE INDEX idx_user_viewed_posts_0 ON user_viewed_posts_0(user_id, viewed_at DESC);
-CREATE INDEX idx_user_viewed_posts_1 ON user_viewed_posts_1(user_id, viewed_at DESC);
-CREATE INDEX idx_user_viewed_posts_2 ON user_viewed_posts_2(user_id, viewed_at DESC);
-CREATE INDEX idx_user_viewed_posts_3 ON user_viewed_posts_3(user_id, viewed_at DESC);
+CREATE INDEX idx_user_viewed_posts ON user_viewed_posts(user_id, viewed_at DESC);
 
 
--- Tabelas para hashtags
 CREATE TABLE hashtags (
     id SERIAL PRIMARY KEY,
     name CITEXT UNIQUE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+
 CREATE TABLE post_hashtags (
-    post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-    hashtag_id INTEGER NOT NULL REFERENCES hashtags(id) ON DELETE CASCADE,
-    PRIMARY KEY (post_id, hashtag_id)
-);
+    post_id INTEGER NOT NULL,
+    hashtag_id INTEGER NOT NULL,
+    PRIMARY KEY (post_id, hashtag_id),
+    CONSTRAINT fk_post FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE,
+    CONSTRAINT fk_hashtag FOREIGN KEY (hashtag_id) REFERENCES hashtags (id) ON DELETE CASCADE
+) PARTITION BY HASH (post_id);
+CREATE TABLE post_hashtags_0 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 0);
+CREATE TABLE post_hashtags_1 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 1);
+CREATE TABLE post_hashtags_2 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 2);
+CREATE TABLE post_hashtags_3 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 
 
 CREATE TABLE comments (
-    id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY NOT NULL,
     user_id INTEGER NOT NULL,
-    post_id INTEGER NOT NULL,
+    post_id INTEGER NOT NULL,    
     content TEXT,
     parent_comment_id INTEGER,
     path LTREE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,    
+    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_post FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE,
     CONSTRAINT fk_parent FOREIGN KEY (parent_comment_id) REFERENCES comments (id) ON DELETE CASCADE
 );
-CREATE INDEX idx_comments_post_id ON comments(post_id);
-CREATE INDEX idx_comments_parent ON comments(parent_comment_id);
+CREATE INDEX idx_comments ON comments (post_id);
+CREATE INDEX idx_comments_parent ON comments (parent_comment_id);
 CREATE INDEX idx_comments_path ON comments USING GIST (path);
-CREATE INDEX idx_comments_user_created ON comments(user_id, created_at);
 
 
--- Tabela para conversar privadas entre usuários
+CREATE TABLE comment_likes (
+    comment_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    PRIMARY KEY (comment_id, user_id),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_comment FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE,
+    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+)
+CREATE INDEX idx_comment_likes ON comment_likes (comment_id);
+
+
+CREATE TABLE metric_types (
+    name VARCHAR(32) PRIMARY KEY
+);
+
+
+INSERT INTO metric_types (name)
+VALUES ('impressions'),
+       ('views');
+
+
+-- Tabela para contagem de métricas de uma postagem
+-- Exemplo: (impressions, views)
+CREATE TABLE post_metrics (
+    post_id INTEGER NOT NULL,
+    metric_count BIGINT NOT NULL DEFAULT 0,
+    metric_type VARCHAR(32) NOT NULL,
+    PRIMARY KEY (post_id, metric_type),
+    CONSTRAINT fk_post FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE,
+    CONSTRAINT fk_metric_type FOREIGN KEY (metric_type) REFERENCES metric_types (name) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_post_metric_type ON post_metrics(post_id, metric_type);
+
+-- Tabela para contagem de métricas de um comentário
+-- Exemplo: (impressions, views)
+CREATE TABLE comment_metrics (
+    comment_id INTEGER NOT NULL,
+    metric_count BIGINT NOT NULL DEFAULT 0,
+    metric_type VARCHAR(32) NOT NULL,
+    PRIMARY KEY (comment_id, metric_type),
+    CONSTRAINT fk_comment FOREIGN KEY (comment_id) REFERENCES comments (id) ON DELETE CASCADE,
+    CONSTRAINT fk_metric_type FOREIGN KEY (metric_type) REFERENCES metric_types (name) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_comment_metric_type ON comment_metrics(comment_id, metric_type);
+
+
+-- Tabela para conversas privadas entre usuários
 CREATE TABLE direct_conversations (
     id SERIAL PRIMARY KEY,
-    user1_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    user2_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user1_id INTEGER NOT NULL,
+    user2_id INTEGER NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,    
+    last_interaction_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (user1_id < user2_id),    
-    UNIQUE (user1_id, user2_id)
+    UNIQUE (user1_id, user2_id),
+    CONSTRAINT fk_user1 FOREIGN KEY (user1_id) REFERENCES users(id),
+    CONSTRAINT fk_user2 FOREIGN KEY (user2_id) REFERENCES users(id)
 );
 CREATE INDEX idx_direct_conversations_user1 ON direct_conversations(user1_id);
 CREATE INDEX idx_direct_conversations_user2 ON direct_conversations(user2_id);
@@ -118,57 +203,29 @@ CREATE INDEX idx_direct_conversations_user2 ON direct_conversations(user2_id);
 -- Tabela para mensagens contidas em uma conversa privada entre usuários
 CREATE TABLE messages (
     id SERIAL PRIMARY KEY,
-    conversation_id INTEGER NOT NULL REFERENCES direct_conversations(id) ON DELETE CASCADE,
-    sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL,
+    sender_id INTEGER NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL
+    reply_to_id INTEGER,
+    CONSTRAINT fk_conversation_id FOREIGN KEY (conversation_id) REFERENCES direct_conversations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_sender_id FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_reply_to_id FOREIGN KEY (reply_to_id) REFERENCES messages(id) ON DELETE SET NULL
 );
 CREATE INDEX idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX idx_messages_created ON messages(created_at);
 
+
 -- Tabela para mensagens lidas em conversas privadas entre usuários
 CREATE TABLE message_reads (
-    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
     read_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (message_id, user_id)
+    PRIMARY KEY (message_id, user_id),
+    CONSTRAINT fk_user_id FOREIGN KEY (user_id) REFERENCES users(id),
+    CONSTRAINT fk_message_id FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 );
-
-
--- Tabela para like em posts
-CREATE TABLE post_likes (
-    user_id INTEGER NOT NULL,
-    post_id INTEGER NOT NULL,    
-    PRIMARY KEY (user_id, post_id)
-) PARTITION BY HASH (post_id);
--- Partições(4) e indices
-CREATE TABLE post_likes_0 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 0);
-CREATE TABLE post_likes_1 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 1);
-CREATE TABLE post_likes_2 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 2);
-CREATE TABLE post_likes_3 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 3);
-CREATE INDEX ON post_likes_0 (post_id);
-CREATE INDEX ON post_likes_1 (post_id);
-CREATE INDEX ON post_likes_2 (post_id);
-CREATE INDEX ON post_likes_3 (post_id);
-
-
--- Tabela para like em comentários
-CREATE TABLE comment_likes (
-    user_id INTEGER NOT NULL,
-    comment_id INTEGER NOT NULL,
-    PRIMARY KEY (user_id, comment_id)
-) PARTITION BY HASH (comment_id);
--- Partições(4) e indices
-CREATE TABLE comment_likes_0 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 0);
-CREATE TABLE comment_likes_1 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 1);
-CREATE TABLE comment_likes_2 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 2);
-CREATE TABLE comment_likes_3 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 3);
-CREATE INDEX ON comment_likes_0 (comment_id);
-CREATE INDEX ON comment_likes_1 (comment_id);
-CREATE INDEX ON comment_likes_2 (comment_id);
-CREATE INDEX ON comment_likes_3 (comment_id);
 
 
 -- Tabela de usuários bloqueados
@@ -176,7 +233,7 @@ CREATE TABLE blocks (
     blocker_id INTEGER NOT NULL,
     blocked_id INTEGER NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chk_block_self CHECK (blocker_id != blocked_id),
+    CONSTRAINT chk_not_self_block CHECK (blocker_id != blocked_id),
     PRIMARY KEY (blocker_id, blocked_id)
 ) PARTITION BY HASH (blocker_id);
 -- Partições (4 tabelas)
@@ -184,10 +241,7 @@ CREATE TABLE blocks_0 PARTITION OF blocks FOR VALUES WITH (MODULUS 4, REMAINDER 
 CREATE TABLE blocks_1 PARTITION OF blocks FOR VALUES WITH (MODULUS 4, REMAINDER 1);
 CREATE TABLE blocks_2 PARTITION OF blocks FOR VALUES WITH (MODULUS 4, REMAINDER 2);
 CREATE TABLE blocks_3 PARTITION OF blocks FOR VALUES WITH (MODULUS 4, REMAINDER 3);
-CREATE INDEX ON blocks_0 (blocker_id);
-CREATE INDEX ON blocks_1 (blocker_id);
-CREATE INDEX ON blocks_2 (blocker_id);
-CREATE INDEX ON blocks_3 (blocker_id);
+CREATE INDEX idx_blocks_blocker ON blocks (blocker_id);
 
 
 -- Tabela para follows
@@ -205,30 +259,8 @@ CREATE TABLE follows_0 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDE
 CREATE TABLE follows_1 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDER 1);
 CREATE TABLE follows_2 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDER 2);
 CREATE TABLE follows_3 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDER 3);
-CREATE INDEX ON follows_0 (follower_id);
-CREATE INDEX ON follows_1 (follower_id);
-CREATE INDEX ON follows_2 (follower_id);
-CREATE INDEX ON follows_3 (follower_id);
+CREATE INDEX idx_follos_follower ON follows(follower_id);
 
-
--- INSERTIONS
-
-INSERT INTO languages (code, name, native_name)
-VALUES
-    ('zh', 'Chinese', '中文'),
-    ('es', 'Spanish', 'Español'),
-    ('en', 'English', 'English'),
-    ('hi', 'Hindi', 'हिन्दी'),
-    ('ar', 'Arabic', 'العربية'),
-    ('bn', 'Bengali', 'বাংলা'),
-    ('pt', 'Portuguese', 'Português'),    
-    ('ja', 'Japanese', '日本語');
-
-
-INSERT INTO post_status (status) 
-VALUES
-    ('draft'), 
-    ('published');
 
 -- FUNCTIONS AND TRIGGERS
 
@@ -464,26 +496,7 @@ FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
 
--- Função para atualizar a coluna updated_at da tabela direct_conversations
--- O valor updated_at da tabela direct_conversations representa a hora que
--- a ultima mensagem foi enviada por algum usuário na conversa
-CREATE OR REPLACE FUNCTION update_conversation_timestamp()
-RETURNS TRIGGER AS $$
-BEGIN
-    UPDATE direct_conversations 
-    SET updated_at = CURRENT_TIMESTAMP 
-    WHERE id = NEW.conversation_id;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
--- Trigger para update_conversation_timestamp
-CREATE TRIGGER trg_update_conversation
-AFTER UPDATE ON messages
-FOR EACH ROW EXECUTE FUNCTION update_conversation_timestamp();
-
-
--- Caso um usuário A de block no usuário B, o usuário A para de
--- seguir automaticamente o usuário B
+-- Faz o usuário A parar de seguir o usuário B caso o usuário A bloqueie o usuário B
 CREATE OR REPLACE FUNCTION delete_relationships_on_block()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -512,7 +525,7 @@ BEGIN
         FROM user_viewed_posts
         WHERE user_id = NEW.user_id
         ORDER BY viewed_at DESC
-        OFFSET 20  -- Mantém apenas os 20 primeiros
+        OFFSET 40  -- Mantém apenas os 40 primeiros
     );
     RETURN NEW;
 END;
