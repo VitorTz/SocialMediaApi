@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from src.database import get_db_pool
+from src.database import open_db, close_db
 from src.route.users import users_router
 from src.route.posts import posts_router
 from src.route.comments import comments_router
@@ -16,9 +16,9 @@ load_dotenv('.env')
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):    
-    get_db_pool().open()
+    open_db()
     yield
-    get_db_pool().close()
+    close_db()
 
 
 app = FastAPI(lifespan=lifespan)

@@ -1,11 +1,8 @@
-from fastapi import APIRouter, status, HTTPException, Query
+from fastapi import APIRouter, status, Query
 from fastapi.responses import JSONResponse, Response
 from src.models.post import Post, PostUnique, PostUpdate, PostCollection
-from src.models.post_like import PostLike
 from src.models.user import UserUnique
-from src.models.comment import Comment
 from typing import Optional
-from typing import List
 from src import database
 
 
@@ -17,20 +14,24 @@ def read_post(post: PostUnique) -> JSONResponse:
     r: database.DataBaseResponse = database.db_read_fetchone(
         """
             SELECT
-                id as post_id,
+                post_id,
                 user_id,
                 title,
                 content,
-                language_code,
+                language,
                 status,
                 is_pinned,
                 TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') AS created_at,
                 TO_CHAR(updated_at, 'DD-MM-YYYY HH24:MI:SS') AS updated_at
-            FROM posts WHERE id = %s;
+            FROM 
+                posts 
+            WHERE 
+                post_id = %s;
         """,
         (str(post.post_id), )
     )
     
+    post['comments'] = database.db_get_post_comments(post['post_id'])
     post['metrics'] = database.db_get_post_metrics(post['post_id']).model_dump()
     
     return r.to_json_response()    
@@ -46,17 +47,18 @@ def read_user_home_page(
     r: database.DataBaseResponse = database.db_read_fetchall(
         """
             SELECT 
-                p.id AS post_id,
+                p.post_id,
                 p.title,
                 p.content,
-                p.updated_at,
-                u.username AS follower_username
+                p.language,                
+                TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') AS created_at,
+                TO_CHAR(updated_at, 'DD-MM-YYYY HH24:MI:SS') AS updated_at                
             FROM 
                 posts p
             INNER JOIN 
                 follows f ON f.follower_id = p.user_id
             INNER JOIN 
-                users u ON u.id = f.follower_id
+                users u ON u.user_id = f.follower_id
             WHERE 
                 f.followed_id = %s
                 AND p.status = 'published'
@@ -68,10 +70,26 @@ def read_user_home_page(
         """,
         (str(user.user_id), days, limit, offset)
     )
-    r.content['offset'] = offset
-    r.content['limit'] = limit
-    r.content['total'] = len(r.content)
-    return r.to_json_response()
+
+    if r.status_code != status.HTTP_200_OK:
+        return r.to_response()
+    
+    for post in r.content:
+        post['comments'] = database.db_get_post_comments(post['post_id'])
+        post['metrics'] = database.db_get_post_metrics(post['post_id']).model_dump()
+        database.db_update_metric_from_post(post['post_id'], 'views')
+
+    post_collection: PostCollection = {
+        "posts": r.content,
+        "offset": offset,
+        "limit": limit,
+        "total": len(r.content)
+    }
+
+    return JSONResponse(
+        post_collection, 
+        r.status_code
+    )
 
 
 @posts_router.post("/posts")
@@ -82,24 +100,28 @@ def create_post(post: Post) -> Response:
                 user_id,
                 title,
                 content,
-                is_pinned,
-                language_code,
-                status
-            ) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
+                language,
+                status,
+                is_pinned                
+            ) 
+            VALUES 
+                (%s, %s, %s, %s, %s, %s) 
+            RETURNING 
+                post_id;
         """, 
         (
             str(post.user_id),
             post.title,
             post.content,
-            post.is_pinned,
-            post.language_code,
-            post.status
+            post.language,
+            post.status,
+            post.is_pinned
         )
     )
     if r.status_code != status.HTTP_201_CREATED:
         return r.to_response()
     
-    database.db_register_post_hashtags(post.content, r.content['id'])
+    database.db_register_post_hashtags(post.content, r.content['post_id'])
 
     return r.to_response()
 
@@ -108,18 +130,24 @@ def create_post(post: Post) -> Response:
 def update_post(post: PostUpdate) -> Response:
     r: database.DataBaseResponse = database.db_update(
         """
-            UPDATE posts set 
+            UPDATE 
+                posts 
+            SET 
                 title = COALESCE(TRIM(%s), title),
                 content = COALESCE(TRIM(%s), content),
+                status = COALESCE(%s, status),
                 is_pinned = COALESCE(%s, is_pinned),
-                status = COALESCE(%s, status)
-            WHERE id = %s RETURNING id;
+                updated_at = CURRENT_TIMESTAMP
+            WHERE 
+                post_id = %s 
+            RETURNING 
+                post_id;
         """, 
         (
             post.title,
             post.content,            
-            post.is_pinned,
             post.status,
+            post.is_pinned,
             str(post.post_id)
         )
     )
@@ -127,7 +155,7 @@ def update_post(post: PostUpdate) -> Response:
     if r.status_code != status.HTTP_201_CREATED:
         return r.to_response()
     
-    database.db_register_post_hashtags(post.content, r.content['id'])
+    database.db_register_post_hashtags(post.content, r.content['post_id'])
 
     return r.to_response()
 
@@ -135,7 +163,14 @@ def update_post(post: PostUpdate) -> Response:
 @posts_router.delete("/posts")
 def delete_post(post: PostUnique) -> Response:
     return database.db_delete(
-        "DELETE FROM posts WHERE id = %s RETURNING id;",
+        """
+            DELETE FROM 
+                posts 
+            WHERE 
+                post_id = %s 
+            RETURNING 
+                post_id;
+        """,
         (str(post.post_id), )
     ).to_response()
 

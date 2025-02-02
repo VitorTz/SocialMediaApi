@@ -37,9 +37,12 @@ pool = ConnectionPool(
 )
 
 
-def get_db_pool() -> ConnectionPool:
-    global pool
-    return pool
+def open_db() -> None:
+    pool.open()
+
+
+def close_db() -> None:
+    pool.close()
 
 
 def db_read_fetchone(query: str, params: tuple[str] = None) -> DataBaseResponse:
@@ -86,7 +89,7 @@ def db_create(query: str, params: tuple[str]) -> DataBaseResponse:
                 cur.execute(query, params)
                 r = cur.fetchone()
                 conn.commit()
-                return DataBaseResponse(status.HTTP_201_CREATED, r)
+                return DataBaseResponse(status.HTTP_201_CREATED, content=r)
             except psycopg.errors.UniqueViolation as e:
                 print(e)
                 conn.rollback()
@@ -145,132 +148,180 @@ def db_delete(query: str, params: tuple[str]) -> DataBaseResponse:
                 conn.commit()
                 if r is None:
                     return DataBaseResponse(status.HTTP_404_NOT_FOUND)
-                return DataBaseResponse(status.HTTP_204_NO_CONTENT, r)
+                return DataBaseResponse(status.HTTP_204_NO_CONTENT, content=r)
             except Exception as e:
                 print(e)
                 conn.rollback()
                 return DataBaseResponse(status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-def db_get_post_metrics(post_id: int) -> Metrics:
-    pool = get_db_pool()
+def db_get_metric_from_post(cur: psycopg.Cursor, post_id: int, metric: str) -> int:
+    cur.execute(
+        """
+            SELECT COALESCE(
+                (
+                    SELECT 
+                        counter 
+                    FROM 
+                        post_metrics 
+                    WHERE 
+                        post_id = %s AND 
+                        type = %s;
+                ),
+                0
+            ) as total;
+        """,
+        (str(post_id), metric)
+    )
+    return cur.fetchone()['total']
+
+
+def db_count_num_likes_from_post(post_id: int) -> int:
+    r: DataBaseResponse = db_read_fetchone(
+        """
+            SELECT COUNT(*) 
+                AS total
+            FROM 
+                post_likes
+            WHERE 
+                post_id = %s;
+        """,
+        (str(post_id), )
+    )
+    if r.status_code == status.HTTP_200_OK:
+        return r.content['total']
+    return 0
+
+
+def db_count_num_comments_from_post(post_id: int) -> int:
+    r: DataBaseResponse = db_read_fetchone(
+        """
+            SELECT COUNT(*) 
+                AS total
+            FROM 
+                comments
+            WHERE 
+                post_id = %s;
+        """,
+        (str(post_id), )
+    )
+    if r.status_code == status.HTTP_200_OK:
+        return r.content['total']
+    return 0
+
+
+def db_update_metric_from_post(post_id: int, metric: str, delta: int = 1) -> Response:
+    return db_create(
+        """
+            INSERT INTO post_metrics 
+                (post_id, type, counter)
+            VALUES 
+                (%s, %s, 1)
+            ON CONFLICT 
+                (post_id, type)
+            DO UPDATE SET 
+                counter = post_metrics.counter + %s
+            RETURNING 
+                post_id;
+        """,
+        (str(post_id), metric, delta)
+    ).to_response()
+
+
+def db_get_metric_from_comment(cur: psycopg.Cursor, comment_id: int, metric: str) -> int:
+    cur.execute(
+        """
+            SELECT COALESCE(
+                (
+                    SELECT 
+                        counter 
+                    FROM 
+                        comment_metrics 
+                    WHERE 
+                        comment_id = %s AND 
+                        type = %s;
+                ),
+                0
+            ) as total;
+        """,
+        (str(comment_id), metric)
+    )
+    return cur.fetchone()['total']
+
+
+def db_count_num_likes_from_comment(comment_id: int) -> int:
+    r: DataBaseResponse = db_read_fetchone(
+        """
+            SELECT COUNT(*) 
+                AS total
+            FROM 
+                comment_likes
+            WHERE 
+                post_id = %s;
+        """,
+        (str(comment_id), )
+    )
+    if r.status_code == status.HTTP_200_OK:
+        return r.content['total']
+    return 0
+
+
+def db_count_num_comments_from_comment(comment_id: int) -> int:
+    r: DataBaseResponse = db_read_fetchone(
+        """
+            SELECT COUNT(*) 
+                AS total
+            FROM 
+                comments
+            WHERE 
+                parent_comment_id = %s;
+        """,
+        (str(comment_id), )
+    )
+    if r.status_code == status.HTTP_200_OK:
+        return r.content['total']
+    return 0
+
+
+def db_update_metric_from_comment(comment_id: int, metric: str, delta: int = 1) -> Response:
+    return db_create(
+        """
+            INSERT INTO comment_metrics 
+                (comment_id, type, counter)
+            VALUES 
+                (%s, %s, 1)
+            ON CONFLICT 
+                (comment_id, type)
+            DO UPDATE SET 
+                counter = comment_metrics.counter + %s
+            RETURNING 
+                comment_id;
+        """,
+        (str(comment_id), metric, delta)
+    ).to_response()
+
+
+def db_get_post_metrics(post_id: int) -> Metrics:    
     metrics = Metrics()
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.row_factory = dict_row
-            cur.execute(
-                """
-                SELECT COALESCE(
-                    (
-                        SELECT metric_count 
-                            FROM post_metrics 
-                            WHERE post_id = %s
-                        AND metric_type = 'views'
-                    ), 
-                    0
-                ) as num_views;
-                """,
-                (str(post_id), )
-            )
-            metrics.num_views = cur.fetchone()['num_views']
-
-            cur.execute(
-                """
-                    SELECT COALESCE(
-                    (
-                        SELECT metric_count 
-                        FROM post_metrics 
-                        WHERE post_id = %s
-                        AND metric_type = 'impressions'
-                    ), 
-                    0
-                ) as num_impressions;
-                """,
-                (str(post_id), )
-            )
-            metrics.num_impressions = cur.fetchone()['num_impressions']
-
-            cur.execute(
-                """
-                    SELECT COUNT(*) AS like_count 
-                        FROM post_likes 
-                    WHERE post_id = %s;
-                """, (str(post_id),)
-                )
-            
-            metrics.num_likes = cur.fetchone()['like_count']
-
-            cur.execute(
-                """
-                    SELECT COUNT(*) AS num_comments 
-                        FROM comments 
-                    WHERE post_id = %s;
-                """, (str(post_id), )
-                )
-            
-            metrics.num_comments = cur.fetchone()['num_comments']
-
+            cur.row_factory = dict_row            
+            metrics.num_views = db_get_metric_from_post(cur, post_id, 'views')            
+            metrics.num_impressions = db_get_metric_from_post(cur, post_id, 'impressions')
+            metrics.num_likes = db_count_num_likes_from_post(post_id)
+            metrics.num_comments = db_count_num_comments_from_post(post_id)
     return metrics
 
 
-def db_get_comment_metrics(comment_id: int) -> Metrics:
-    pool = get_db_pool()
+def db_get_comment_metrics(comment_id: int) -> Metrics:    
     metrics = Metrics()
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.row_factory = dict_row
-            cur.execute(
-                """
-                SELECT COALESCE(
-                    (
-                        SELECT metric_count 
-                            FROM comment_metrics 
-                            WHERE comment_id = %s
-                        AND metric_type = 'views'
-                    ), 
-                    0
-                ) as num_views;
-                """,
-                (str(comment_id), )
-            )
-            metrics.num_views = cur.fetchone()['num_views']
-
-            cur.execute(
-                """
-                    SELECT COALESCE(
-                    (
-                        SELECT metric_count 
-                            FROM comment_metrics 
-                            WHERE comment_id = %s
-                        AND metric_type = 'impressions'
-                    ), 
-                    0
-                ) as num_impressions;
-                """,
-                (str(comment_id), )
-            )
-            metrics.num_impressions = cur.fetchone()['num_impressions']
-
-            cur.execute(
-                """
-                    SELECT COUNT(*) AS like_count 
-                        FROM comment_likes 
-                    WHERE comment_id = %s;
-                """, (str(comment_id), )
-                )
-            
-            metrics.num_likes = cur.fetchone()['like_count']
-
-            cur.execute(
-                """
-                SELECT COUNT(*) AS num_comments
-                    FROM comments
-                WHERE parent_comment_id = %s;
-                """, (str(comment_id),)
-            )
-            
-            metrics.num_comments = cur.fetchone()['num_comments']
-
+            cur.row_factory = dict_row            
+            metrics.num_views = db_get_metric_from_comment(cur, comment_id, 'views')
+            metrics.num_impressions = db_get_metric_from_comment(cur, comment_id, 'impressions')
+            metrics.num_likes = db_count_num_likes_from_comment(comment_id)
+            metrics.num_comments = db_count_num_comments_from_comment(comment_id)
     return metrics
 
 
@@ -281,9 +332,13 @@ def db_register_post_hashtags(content: str, post_id: int) -> None:
             for tag in hashtags:
                 cur.execute(
                     """
-                        INSERT INTO hashtags (name) 
-                            VALUES (%s)
-                        ON CONFLICT (name) DO NOTHING;
+                        INSERT INTO hashtags 
+                            (name) 
+                        VALUES 
+                            (%s)
+                        ON CONFLICT 
+                            (name) 
+                        DO NOTHING;
                     """, 
                     (tag, )
                 )
@@ -292,76 +347,21 @@ def db_register_post_hashtags(content: str, post_id: int) -> None:
                     """
                         INSERT INTO post_hashtags 
                             (post_id, hashtag_id)
-                            VALUES (%s, (SELECT id FROM hashtags WHERE name = %s))
-                        ON CONFLICT (post_id, hashtag_id) DO NOTHING;
+                        VALUES 
+                            (%s, (SELECT id FROM hashtags WHERE name = %s))
+                        ON CONFLICT 
+                            (post_id, hashtag_id) 
+                        DO NOTHING;
                     """, 
                     (str(post_id), tag)
                 )
 
 
-def db_count_post_likes(post_id: int) -> int:
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                    SELECT COUNT(*) AS num_likes
-                        FROM post_likes
-                    WHERE post_id = %s;
-                """, 
-                (str(post_id), )
-            )
-            return cur.fetchone()['num_likes']
-
-
-def db_count_comment_likes(comment_id: int) -> int:
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                    SELECT COUNT(*) AS num_likes
-                        FROM comment_likes
-                    WHERE comment_id = %s;
-                """, 
-                (str(comment_id), )
-            )
-            return cur.fetchone()['num_likes']
-
-
 def db_get_post_comments(post_id: int) -> list[Comment]:
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.row_factory = dict_row
-            cur.execute("SELECT get_post_comments(%s);", (str(post_id), ))
-            r = cur.fetchall()
-            if r is None:
-                return []
-            return r
-
-
-def db_get_comment(comment_id: int) -> Comment | None:
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.row_factory = dict_row
-            cur.execute("SELECT get_comment_thread(%s);", (str(comment_id), ))
-            r = cur.fetchone()
-            if r is None:
-                None
-            return r            
-
-
-def db_post_add_impressions(post_id: int) -> bool:
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    """
-                        INSERT INTO post_metrics (post_id, metric_type, metric_count)
-                            VALUES (%s, 'impressions', 1)
-                        ON CONFLICT (post_id, metric_type) DO UPDATE SET metric_count = post_metrics.metric_count + 1;
-                    """,
-                    (str(post_id), )
-                )
-                return True
-            except Exception as e:
-                print(e)
-                return False
+    r: DataBaseResponse = db_read_fetchall(
+        "SELECT get_post_comments(%s);", 
+        (str(post_id), )
+    )
+    if r.status_code == status.HTTP_200_OK:
+        return r.content
+    return []

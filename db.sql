@@ -1,11 +1,10 @@
-CREATE SCHEMA partman;
 CREATE EXTENSION IF NOT EXISTS ltree;
 CREATE EXTENSION IF NOT EXISTS citext;
-CREATE EXTENSION IF NOT EXISTS pg_partman SCHEMA partman;
 
+-------------------------------------------------------------------------------
 
 CREATE TABLE users (
-    id SERIAL PRIMARY KEY,    
+    user_id SERIAL PRIMARY KEY,    
     username CITEXT UNIQUE NOT NULL,
     email CITEXT UNIQUE NOT NULL,
     full_name VARCHAR (64) NOT NULL,
@@ -14,13 +13,14 @@ CREATE TABLE users (
     birthdate DATE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    is_verified BOOLEAN NOT NULL DEFAULT false,
-    CONSTRAINT chk_user_age CHECK (birthdate <= CURRENT_DATE - INTERVAL '16 years'),
-    CONSTRAINT chk_user_username_length CHECK (LENGTH(username) <= 32),
-    CONSTRAINT chk_user_email_length CHECK (LENGTH(email) <= 255),
-    CONSTRAINT chk_user_email_format CHECK (email ~* '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    is_verified BOOLEAN NOT NULL DEFAULT false,    
+    CONSTRAINT users_chk_user_age CHECK (birthdate <= CURRENT_DATE - INTERVAL '16 years'),
+    CONSTRAINT users_chk_user_username_length CHECK (LENGTH(username) <= 32),
+    CONSTRAINT users_chk_user_email_length CHECK (LENGTH(email) <= 255),
+    CONSTRAINT users_chk_user_email_format CHECK (email ~* '^[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+)*@(?:(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,})$')
 );
 
+-------------------------------------------------------------------------------
 
 CREATE TABLE languages (
     code VARCHAR(8) PRIMARY KEY CHECK (code ~ '^[a-z]{2}(-[A-Z]{2})?$'),
@@ -28,57 +28,64 @@ CREATE TABLE languages (
     native_name VARCHAR(64)
 );
 
-
-INSERT INTO languages (code, name, native_name)
+INSERT INTO  languages 
+    (code, name, native_name)
 VALUES
     ('zh', 'Chinese', '中文'),
     ('es', 'Spanish', 'Español'),
     ('en', 'English', 'English'),
-    ('hi', 'Hindi', 'हिन्दी'),
-    ('ar', 'Arabic', 'العربية'),
-    ('bn', 'Bengali', 'বাংলা'),
     ('pt', 'Portuguese', 'Português'),    
     ('ja', 'Japanese', '日本語');
 
+-------------------------------------------------------------------------------
 
-CREATE TYPE post_status_type AS ENUM (
+CREATE TYPE 
+    post_status_type
+AS ENUM  (
     'draft', 
     'published',
     'archived'
 );
 
+-------------------------------------------------------------------------------
 
 CREATE TABLE posts (
-    id SERIAL PRIMARY KEY NOT NULL,
+    post_id SERIAL PRIMARY KEY NOT NULL,
     user_id INTEGER NOT NULL,
     title VARCHAR(256) NOT NULL,
     content TEXT,
-    is_pinned BOOLEAN NOT NULL DEFAULT false,    
-    language_code VARCHAR(8),
-    post_status_type NOT NULL,
+    language VARCHAR(8),
+    status post_status_type NOT NULL,
+    is_pinned BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,        
-    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-    CONSTRAINT fk_status FOREIGN KEY (status) REFERENCES post_status (status) ON DELETE CASCADE,
-    CONSTRAINT fk_language_code FOREIGN KEY (language_code) REFERENCES languages (code)
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT posts_fk_user FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
+    CONSTRAINT posts_fk_language FOREIGN KEY (language) REFERENCES languages (code)
 );
 CREATE INDEX idx_posts_user_id ON posts(user_id);
-CREATE INDEX idx_posts_language ON posts(language_code);
+CREATE INDEX idx_posts_language ON posts(language);
 CREATE INDEX idx_posts_created_at ON posts(created_at);
 CREATE INDEX idx_posts_published ON posts(status) WHERE status = 'published';
 CREATE INDEX idx_posts_updated_at ON posts(updated_at);
 CREATE INDEX idx_posts_user_status ON posts(user_id, status);
 
+-------------------------------------------------------------------------------
 
 CREATE TABLE post_likes (
     post_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (post_id, user_id),
-    CONSTRAINT fk_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
-    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-CREATE INDEX idx_post_likes ON post_likes (post_id);
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE
+) PARTITION BY HASH (post_id);
+CREATE TABLE post_likes_0 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 0);
+CREATE TABLE post_likes_1 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 1);
+CREATE TABLE post_likes_2 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 2);
+CREATE TABLE post_likes_3 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 3);
+
+-------------------------------------------------------------------------------
 
 -- Histórico de post vistos por um usuário
 -- Um post é considerado visto quanto o usuário clica para entrar na postagem
@@ -87,8 +94,8 @@ CREATE TABLE user_viewed_posts (
     post_id INTEGER NOT NULL, 
     viewed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, post_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE
 ) PARTITION BY HASH (user_id);
 CREATE TABLE user_viewed_posts_0 PARTITION OF user_viewed_posts FOR VALUES WITH (MODULUS 4, REMAINDER 0);
 CREATE TABLE user_viewed_posts_1 PARTITION OF user_viewed_posts FOR VALUES WITH (MODULUS 4, REMAINDER 1);
@@ -96,143 +103,163 @@ CREATE TABLE user_viewed_posts_2 PARTITION OF user_viewed_posts FOR VALUES WITH 
 CREATE TABLE user_viewed_posts_3 PARTITION OF user_viewed_posts FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 CREATE INDEX idx_user_viewed_posts ON user_viewed_posts(user_id, viewed_at DESC);
 
+-------------------------------------------------------------------------------
 
 CREATE TABLE hashtags (
-    id SERIAL PRIMARY KEY,
+    hashtag_id SERIAL PRIMARY KEY,
     name CITEXT UNIQUE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-
 CREATE TABLE post_hashtags (
+    user_id INTEGER NOT NULL,
     post_id INTEGER NOT NULL,
     hashtag_id INTEGER NOT NULL,
-    PRIMARY KEY (post_id, hashtag_id),
-    CONSTRAINT fk_post FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE,
-    CONSTRAINT fk_hashtag FOREIGN KEY (hashtag_id) REFERENCES hashtags (id) ON DELETE CASCADE
+    PRIMARY KEY (user_id, post_id, hashtag_id),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT post_hashtags_fk_user FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
+    CONSTRAINT post_hashtags_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE,
+    CONSTRAINT post_hashtags_fk_hashtag FOREIGN KEY (hashtag_id) REFERENCES hashtags (hashtag_id) ON DELETE CASCADE
 ) PARTITION BY HASH (post_id);
 CREATE TABLE post_hashtags_0 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 0);
 CREATE TABLE post_hashtags_1 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 1);
 CREATE TABLE post_hashtags_2 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 2);
 CREATE TABLE post_hashtags_3 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 
+-------------------------------------------------------------------------------
 
 CREATE TABLE comments (
-    id SERIAL PRIMARY KEY NOT NULL,
+    comment_id SERIAL PRIMARY KEY NOT NULL,
     user_id INTEGER NOT NULL,
     post_id INTEGER NOT NULL,    
     content TEXT,
     parent_comment_id INTEGER,
-    path LTREE,
+    path LTREE,    
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,    
-    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_post FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE,
-    CONSTRAINT fk_parent FOREIGN KEY (parent_comment_id) REFERENCES comments (id) ON DELETE CASCADE
+    CONSTRAINT comments_fk_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT comments_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE,
+    CONSTRAINT comments_fk_parent FOREIGN KEY (parent_comment_id) REFERENCES comments (comment_id) ON DELETE CASCADE
 );
 CREATE INDEX idx_comments ON comments (post_id);
 CREATE INDEX idx_comments_parent ON comments (parent_comment_id);
 CREATE INDEX idx_comments_path ON comments USING GIST (path);
 
+-------------------------------------------------------------------------------
 
 CREATE TABLE comment_likes (
-    comment_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
-    PRIMARY KEY (comment_id, user_id),
+    post_id INTEGER NOT NULL,
+    comment_id INTEGER NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_comment FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE,
-    CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-)
-CREATE INDEX idx_comment_likes ON comment_likes (comment_id);
+    PRIMARY KEY(user_id, post_id, comment_id),
+    CONSTRAINT comment_likes_fk_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT comment_likes_fk_comment FOREIGN KEY (comment_id) REFERENCES comments(comment_id) ON DELETE CASCADE
+) PARTITION BY HASH (post_id)
+CREATE TABLE comment_likes_0 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 0);
+CREATE TABLE comment_likes_1 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 1);
+CREATE TABLE comment_likes_2 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 2);
+CREATE TABLE comment_likes_3 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 3);
+CREATE INDEX idx_comment_likes ON comment_likes (post_id);
 
+-------------------------------------------------------------------------------
 
-CREATE TABLE metric_types (
-    name VARCHAR(32) PRIMARY KEY
+CREATE TYPE metric_type AS ENUM (
+    'impressions', 
+    'views'    
 );
 
-
-INSERT INTO metric_types (name)
-VALUES ('impressions'),
-       ('views');
-
+-------------------------------------------------------------------------------
 
 -- Tabela para contagem de métricas de uma postagem
 -- Exemplo: (impressions, views)
 CREATE TABLE post_metrics (
     post_id INTEGER NOT NULL,
-    metric_count BIGINT NOT NULL DEFAULT 0,
-    metric_type VARCHAR(32) NOT NULL,
-    PRIMARY KEY (post_id, metric_type),
-    CONSTRAINT fk_post FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE,
-    CONSTRAINT fk_metric_type FOREIGN KEY (metric_type) REFERENCES metric_types (name) ON DELETE CASCADE
-);
+    counter BIGINT NOT NULL DEFAULT 0,    
+    type metric_type NOT NULL,
+    PRIMARY KEY (post_id, type),
+    CONSTRAINT post_metrics_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE,
+    CONSTRAINT post_metrics_chk_positive_counter CHECK (counter >= 0)
+) PARTITION BY LIST (type);
 
-CREATE INDEX idx_post_metric_type ON post_metrics(post_id, metric_type);
+CREATE TABLE post_metrics_impressions PARTITION OF post_metrics FOR VALUES IN ('impressions');
+ALTER TABLE post_metrics_impressions SET (fillfactor = 80);
+CREATE TABLE post_metrics_views PARTITION OF post_metrics FOR VALUES IN ('views');
+ALTER TABLE post_metrics_views SET (fillfactor = 80);
+
+-------------------------------------------------------------------------------
 
 -- Tabela para contagem de métricas de um comentário
 -- Exemplo: (impressions, views)
 CREATE TABLE comment_metrics (
     comment_id INTEGER NOT NULL,
-    metric_count BIGINT NOT NULL DEFAULT 0,
-    metric_type VARCHAR(32) NOT NULL,
-    PRIMARY KEY (comment_id, metric_type),
-    CONSTRAINT fk_comment FOREIGN KEY (comment_id) REFERENCES comments (id) ON DELETE CASCADE,
-    CONSTRAINT fk_metric_type FOREIGN KEY (metric_type) REFERENCES metric_types (name) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_comment_metric_type ON comment_metrics(comment_id, metric_type);
+    counter BIGINT NOT NULL DEFAULT 0,
+    type metric_type NOT NULL,
+    PRIMARY KEY (comment_id, type),
+    CONSTRAINT comment_metrics_fk_comment FOREIGN KEY (comment_id) REFERENCES comments (comment_id) ON DELETE CASCADE,
+    CONSTRAINT comment_metrics_chk_positive_counter CHECK (counter >= 0)
+) PARTITION BY LIST (type);
 
 
--- Tabela para conversas privadas entre usuários
-CREATE TABLE direct_conversations (
-    id SERIAL PRIMARY KEY,
+CREATE TABLE comment_metrics_impressions PARTITION OF comment_metrics FOR VALUES IN ('impressions');
+ALTER TABLE comment_metrics_impressions SET (fillfactor = 80);
+CREATE TABLE comment_metrics_views PARTITION OF comment_metrics FOR VALUES IN ('views');
+ALTER TABLE  comment_metrics_views  SET (fillfactor = 80);
+
+-------------------------------------------------------------------------------
+
+CREATE TABLE direct_conversations (    
+    conversation_id SERIAL PRIMARY KEY,
     user1_id INTEGER NOT NULL,
     user2_id INTEGER NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_interaction_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CHECK (user1_id < user2_id),    
+    last_interaction_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,    
     UNIQUE (user1_id, user2_id),
-    CONSTRAINT fk_user1 FOREIGN KEY (user1_id) REFERENCES users(id),
-    CONSTRAINT fk_user2 FOREIGN KEY (user2_id) REFERENCES users(id)
+    CONSTRAINT direct_conversations_fk_user1 FOREIGN KEY (user1_id) REFERENCES users(user_id),
+    CONSTRAINT direct_conversations_fk_user2 FOREIGN KEY (user2_id) REFERENCES users(user_id),
+    CONSTRAINT direct_conversations_chk_user_order CHECK (user1_id < user2_id)
 );
 CREATE INDEX idx_direct_conversations_user1 ON direct_conversations(user1_id);
 CREATE INDEX idx_direct_conversations_user2 ON direct_conversations(user2_id);
 
+-------------------------------------------------------------------------------
 
--- Tabela para mensagens contidas em uma conversa privada entre usuários
 CREATE TABLE messages (
-    id SERIAL PRIMARY KEY,
+    message_id SERIAL PRIMARY KEY,
     conversation_id INTEGER NOT NULL,
     sender_id INTEGER NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    reply_to_id INTEGER,
-    CONSTRAINT fk_conversation_id FOREIGN KEY (conversation_id) REFERENCES direct_conversations(id) ON DELETE CASCADE,
-    CONSTRAINT fk_sender_id FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_reply_to_id FOREIGN KEY (reply_to_id) REFERENCES messages(id) ON DELETE SET NULL
+    reply_to_message_id INTEGER,
+    CONSTRAINT messages_fk_conversation_id FOREIGN KEY (conversation_id) REFERENCES direct_conversations(conversation_id) ON DELETE CASCADE,
+    CONSTRAINT messages_fk_sender_id FOREIGN KEY (sender_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT messages_fk_reply_to_id FOREIGN KEY (reply_to_message_id) REFERENCES messages(message_id) ON DELETE SET NULL
 );
 CREATE INDEX idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX idx_messages_conversation_created ON messages(conversation_id, created_at);
 
--- Tabela para mensagens lidas em conversas privadas entre usuários
+-------------------------------------------------------------------------------
+
 CREATE TABLE message_reads (
     message_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
     read_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (message_id, user_id),
-    CONSTRAINT fk_user_id FOREIGN KEY (user_id) REFERENCES users(id),
-    CONSTRAINT fk_message_id FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+    CONSTRAINT message_reads_fk_user_id FOREIGN KEY (user_id) REFERENCES users(user_id),
+    CONSTRAINT message_reads_fk_message_id FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
 );
 
+-------------------------------------------------------------------------------
 
--- Tabela de usuários bloqueados
 CREATE TABLE blocks (
-    blocker_id INTEGER NOT NULL,
-    blocked_id INTEGER NOT NULL,
+    blocker_id INTEGER NOT NULL,    -- quem está bloqueando
+    blocked_id INTEGER NOT NULL,    -- quem está bloqueado
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chk_not_self_block CHECK (blocker_id != blocked_id),
-    PRIMARY KEY (blocker_id, blocked_id)
+    PRIMARY KEY (blocker_id, blocked_id),
+    CONSTRAINT blocks_fk_blocker_id FOREIGN KEY (blocker_id) REFERENCES users(user_id),
+    CONSTRAINT blocks_fk_blocked_id FOREIGN KEY (blocked_id) REFERENCES users(user_id),    
+    CONSTRAINT blocks_chk_not_self_block CHECK (blocker_id != blocked_id)
 ) PARTITION BY HASH (blocker_id);
 -- Partições (4 tabelas)
 CREATE TABLE blocks_0 PARTITION OF blocks FOR VALUES WITH (MODULUS 4, REMAINDER 0);
@@ -241,51 +268,68 @@ CREATE TABLE blocks_2 PARTITION OF blocks FOR VALUES WITH (MODULUS 4, REMAINDER 
 CREATE TABLE blocks_3 PARTITION OF blocks FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 CREATE INDEX idx_blocks_blocker ON blocks (blocker_id);
 
+-------------------------------------------------------------------------------
 
--- Tabela para follows
 CREATE TABLE follows (
-    follower_id INTEGER NOT NULL, -- usuario que esta seguindo
-    followed_id INTEGER NOT NULL, -- usuario que esta sendo seguido
-    PRIMARY KEY (follower_id, followed_id),
+    follower_id INTEGER NOT NULL, -- quem está seguindo
+    followed_id INTEGER NOT NULL, -- quem está sendo seguido
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chk_not_self_follow CHECK (follower_id != followed_id),
-    CONSTRAINT fk_follower FOREIGN KEY (follower_id) REFERENCES users (id) ON DELETE CASCADE,
-    CONSTRAINT fk_followed FOREIGN KEY (followed_id) REFERENCES users (id) ON DELETE CASCADE
+    PRIMARY KEY (follower_id, followed_id),
+    CONSTRAINT follows_chk_not_seld_follow CHECK (follower_id != followed_id),
+    CONSTRAINT follows_fk_follower FOREIGN KEY (follower_id) REFERENCES users (user_id) ON DELETE CASCADE,
+    CONSTRAINT follows_fk_followed FOREIGN KEY (followed_id) REFERENCES users (user_id) ON DELETE CASCADE
 ) PARTITION BY HASH (follower_id);
--- Partições (4 tabelas)
 CREATE TABLE follows_0 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDER 0);
 CREATE TABLE follows_1 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDER 1);
 CREATE TABLE follows_2 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDER 2);
 CREATE TABLE follows_3 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDER 3);
-CREATE INDEX idx_follos_follower ON follows(follower_id);
+CREATE INDEX idx_follower ON follows(follower_id);
 
+-------------------------------------------------------------------------------
 
 -- FUNCTIONS AND TRIGGERS
 
--- Função para definir automaticamente o campo 'path' de um comentário
-CREATE OR REPLACE FUNCTION set_comment_path()
+-- Atualiza o campo path
+CREATE OR REPLACE FUNCTION set_comment_path_before()
 RETURNS TRIGGER AS $$
+DECLARE
+    new_comment_id INTEGER;
+    parent_path LTREE;
 BEGIN
-    IF NEW.parent_comment_id IS NULL THEN
-        -- Caso seja um comentário raiz -> definir 'path' como o próprio ID
-        NEW.path := NEW.id::TEXT::LTREE;
-    ELSE
-        -- Caso seja um comentário filho -> concatenar caminho do pai com o ID atual
-        NEW.path := (SELECT path FROM comments WHERE id = NEW.parent_comment_id) || NEW.id::TEXT;
+    -- Se o comment_id não for informado (geralmente nulo), obtenha-o manualmente
+    IF NEW.comment_id IS NULL THEN
+        NEW.comment_id := nextval(pg_get_serial_sequence('comments', 'comment_id'));
     END IF;
+    
+    new_comment_id := NEW.comment_id;
+    
+    -- Se não houver comentário pai, define o path como o próprio comment_id convertido para LTREE
+    IF NEW.parent_comment_id IS NULL THEN
+        NEW.path := new_comment_id::text::ltree;
+    ELSE
+        -- Recupera o path do comentário pai
+        SELECT path INTO parent_path FROM comments WHERE comment_id = NEW.parent_comment_id;
+        IF parent_path IS NULL THEN
+            RAISE EXCEPTION 'O comentário pai com id % não foi encontrado ou não possui path definido.', NEW.parent_comment_id;
+        END IF;
+        -- Concatena o path do pai com o novo comment_id
+        NEW.path := parent_path || new_comment_id::text::ltree;
+    END IF;
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger para chamar a função set_comment_path ao inserir um novo comentário
+
 CREATE TRIGGER trigger_set_comment_path
 BEFORE INSERT ON comments
 FOR EACH ROW
-EXECUTE FUNCTION set_comment_path();
+EXECUTE FUNCTION set_comment_path_before();
 
+-------------------------------------------------------------------------------
 
-
--- Função para retornar um comentário e todos seus comentários filhos diretos ou indiretos
+-- Retornar um comentário pai e todos seus comentários filhos diretos ou indiretos
+-- de forma recursiva
 CREATE OR REPLACE FUNCTION get_comment_thread(parent_id INT)
 RETURNS JSONB
 LANGUAGE plpgsql STABLE AS $$
@@ -294,14 +338,14 @@ DECLARE
     result JSONB;
 BEGIN
 
-    SELECT path INTO parent_path FROM comments WHERE id = parent_id;
+    SELECT path INTO parent_path FROM comments WHERE comment_id = parent_id;
     IF parent_path IS NULL THEN
         RETURN NULL;
     END IF;
     
     WITH RECURSIVE comment_tree AS (
         SELECT 
-            c.id,
+            c.comment_id,
             c.content,
             c.user_id,
             c.post_id,
@@ -310,22 +354,24 @@ BEGIN
             c.updated_at,
             c.path,
             jsonb_build_object(
-                'comment_id', c.id,
+                'comment_id', c.comment_id,
                 'content', c.content,
                 'user_id', c.user_id,
                 'post_id', c.post_id,
                 'parent_comment_id', c.parent_comment_id,
-                'created_at', TO_CHAR(c.created_at, 'DD-MM-YYYY HH24:MI:SS'),
-                'updated_at', TO_CHAR(c.updated_at, 'DD-MM-YYYY HH24:MI:SS'),
+                'created_at', c.created_at,
+                'updated_at', c.updated_at,
                 'thread', '[]'::JSONB
             ) AS thread
-        FROM comments c
-        WHERE c.path = parent_path  -- Comentário raiz
+        FROM 
+            comments c
+        WHERE 
+            c.path = parent_path  -- Comentário raiz
 
         UNION ALL
 
         SELECT 
-            c.id,
+            c.comment_id,
             c.content,
             c.user_id,
             c.post_id,
@@ -334,29 +380,38 @@ BEGIN
             c.updated_at,
             c.path,
             jsonb_build_object(
-                'comment_id', c.id,
+                'comment_id', c.comment_id,
                 'content', c.content,
                 'user_id', c.user_id,
                 'post_id', c.post_id,
                 'parent_comment_id', c.parent_comment_id,
-                'created_at', TO_CHAR(c.created_at, 'DD-MM-YYYY HH24:MI:SS'),
-                'updated_at', TO_CHAR(c.updated_at, 'DD-MM-YYYY HH24:MI:SS'),
+                'created_at', c.created_at,
+                'updated_at', c.updated_at,
                 'thread', '[]'::JSONB
             )
-        FROM comments c
-        JOIN comment_tree ct ON c.parent_comment_id = ct.id
+        FROM 
+            comments c
+        JOIN 
+            comment_tree ct ON 
+            c.parent_comment_id = ct.comment_id
     )
     
-    SELECT jsonb_agg(thread) INTO result
-    FROM comment_tree
-    WHERE path = parent_path;
+    SELECT 
+        jsonb_agg(thread) 
+    INTO 
+        result
+    FROM 
+        comment_tree
+    WHERE 
+        path = parent_path;
 
     RETURN result;
 END;
 $$;
 
+-------------------------------------------------------------------------------
 
--- Função para retornar todos os comentários relacionados a certo post
+-- Retornar todos os comentários relacionados a certo post
 CREATE OR REPLACE FUNCTION get_post_comments(target_post_id INT)
 RETURNS JSONB
 LANGUAGE plpgsql STABLE AS $$
@@ -366,7 +421,7 @@ BEGIN
     WITH RECURSIVE comment_tree AS (
         -- Comentários raiz
         SELECT 
-            c.id,
+            c.comment_id,
             c.content,
             c.user_id,
             c.post_id,
@@ -375,25 +430,25 @@ BEGIN
             c.updated_at,
             c.path,
             jsonb_build_object(
-                'comment_id', c.id,
+                'comment_id', c.comment_id,
                 'content', c.content,
                 'user_id', c.user_id,
                 'post_id', c.post_id,
                 'parent_comment_id', c.parent_comment_id,
-                'created_at', TO_CHAR(c.created_at, 'DD-MM-YYYY HH24:MI:SS'),
-                'updated_at', TO_CHAR(c.updated_at, 'DD-MM-YYYY HH24:MI:SS'),
+                'created_at', c.created_at,
+                'updated_at', c.updated_at,
                 'thread', '[]'::JSONB
             ) AS thread
-        FROM comments c
+        FROM 
+            comments c
         WHERE 
-            c.post_id = target_post_id 
-            AND c.parent_comment_id IS NULL  -- Filtra apenas comentários raiz
+            c.post_id = target_post_id AND 
+            c.parent_comment_id IS NULL  -- Filtra apenas comentários raiz
 
         UNION ALL
-
         -- Comentários filhos
         SELECT 
-            c.id,
+            c.comment_id,
             c.content,
             c.user_id,
             c.post_id,
@@ -402,32 +457,41 @@ BEGIN
             c.updated_at,
             c.path,
             jsonb_build_object(
-                'comment_id', c.id,
+                'comment_id', c.comment_id,
                 'content', c.content,
                 'user_id', c.user_id,
                 'post_id', c.post_id,
                 'parent_comment_id', c.parent_comment_id,
-                'created_at', TO_CHAR(c.created_at, 'DD-MM-YYYY HH24:MI:SS'),
-                'updated_at', TO_CHAR(c.updated_at, 'DD-MM-YYYY HH24:MI:SS'),
+                'created_at', c.created_at,
+                'updated_at', c.updated_at,
                 'thread', '[]'::JSONB
             )
-        FROM comments c
-        JOIN comment_tree ct ON c.parent_comment_id = ct.id
+        FROM 
+            comments c
+        JOIN 
+            comment_tree ct ON 
+            c.parent_comment_id = ct.comment_id
     )
 
-    SELECT jsonb_agg(thread) INTO result
-    FROM comment_tree
-    WHERE parent_comment_id IS NULL;
+    SELECT 
+        jsonb_agg(thread) 
+    INTO 
+        result
+    FROM 
+        comment_tree
+    WHERE 
+        parent_comment_id IS NULL;
 
     RETURN result;
 END;
 $$;
 
+-------------------------------------------------------------------------------
 
 -- Garante que o comentário filho pertence ao mesmo post que o comentário pai
 CREATE OR REPLACE FUNCTION ensure_same_post() RETURNS TRIGGER AS $$
 BEGIN    
-    IF (SELECT post_id FROM comments WHERE id = NEW.parent_comment_id) <> NEW.post_id THEN
+    IF (SELECT post_id FROM comments WHERE comment_id = NEW.parent_comment_id) <> NEW.post_id THEN
         RAISE EXCEPTION 'Parent comment must belong to the same post as the child comment.';
     END IF;
     RETURN NEW;
@@ -441,88 +505,54 @@ FOR EACH ROW
 WHEN (NEW.parent_comment_id IS NOT NULL)
 EXECUTE FUNCTION ensure_same_post();
 
+-------------------------------------------------------------------------------
 
--- Bloqueia atualizações de post_id e parent_comment_id em comentários
-CREATE OR REPLACE FUNCTION prevent_comment_fk_updates()
-RETURNS TRIGGER AS $$
+-- Manter histórico de posts vistos por cada usuário menor que 40
+-- Executada todos os dias as 3:00 de manhã via cron
+CREATE OR REPLACE FUNCTION prune_viewed_posts()
+RETURNS VOID AS $$
 BEGIN
-    -- Bloqueia atualização de post_id
-    IF NEW.post_id IS DISTINCT FROM OLD.post_id THEN
-        RAISE EXCEPTION 'Não é permitido alterar post_id de um comentário.';
-    END IF;
-
-    -- Bloqueia atualização de parent_comment_id
-    IF NEW.parent_comment_id IS DISTINCT FROM OLD.parent_comment_id THEN
-        RAISE EXCEPTION 'Não é permitido alterar parent_comment_id de um comentário.';
-    END IF;
-
-    RETURN NEW;
+    WITH ranked AS (
+        SELECT 
+            user_id, 
+            post_id,
+            row_number() OVER (PARTITION BY user_id ORDER BY viewed_at DESC) AS rn
+        FROM user_viewed_posts
+    )
+    DELETE FROM 
+        user_viewed_posts uv
+    USING 
+        ranked r
+    WHERE 
+        uv.user_id = r.user_id AND 
+        uv.post_id = r.post_id AND 
+        r.rn > 40;
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger para chamar a função prevent_comment_fk_updates ao atualizar um comentário
-CREATE TRIGGER trig_prevent_comment_fk_updates
-BEFORE UPDATE ON comments
-FOR EACH ROW
-EXECUTE FUNCTION prevent_comment_fk_updates();
+-------------------------------------------------------------------------------
 
-
--- Função para atualizar a coluna updated_at sempre que uma atualização for feita
-CREATE OR REPLACE FUNCTION set_updated_at()
-RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION get_hashtags_usage(num_days INTEGER)
+RETURNS TABLE (
+    name CITEXT,
+    counter BIGINT
+) AS $$
 BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
+    RETURN QUERY
+    SELECT
+        h.name,
+        COUNT(*) AS counter
+    FROM 
+        hashtags h
+    JOIN 
+        post_hashtags ph ON 
+        ph.hashtag_id = h.hashtag_id
+    WHERE 
+        ph.created_at >= CURRENT_TIMESTAMP - (num_days || ' days')::interval
+    GROUP BY 
+        h.name
+    ORDER BY 
+        counter 
+    DESC;
 END;
 $$ LANGUAGE plpgsql;
-
-
--- Trigger para set_update_at para as tabelas users, posts e comments
-CREATE TRIGGER trig_users_updated_at
-BEFORE UPDATE ON users
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trig_posts_updated_at
-BEFORE UPDATE ON posts
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-CREATE TRIGGER trig_comments_updated_at
-BEFORE UPDATE ON comments
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
-
-
--- Faz o usuário A parar de seguir o usuário B caso o usuário A bloqueie o usuário B
-CREATE OR REPLACE FUNCTION delete_relationships_on_block()
-RETURNS TRIGGER AS $$
-BEGIN
-    DELETE FROM follows 
-    WHERE (follower_id = NEW.blocker_id AND followed_id = NEW.blocked_id)
-       OR (follower_id = NEW.blocked_id AND followed_id = NEW.blocker_id);
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
--- Trigger para delete_relationships_on_block
-CREATE TRIGGER trg_delete_relationships
-AFTER INSERT ON blocks
-FOR EACH ROW EXECUTE FUNCTION delete_relationships_on_block();
-
-
-
--- Atualizar last_interaction
-CREATE OR REPLACE FUNCTION update_conversation_interaction()
-RETURNS TRIGGER AS $$
-BEGIN
-    UPDATE direct_conversations
-    SET last_interaction_at = NEW.created_at
-    WHERE id = NEW.conversation_id;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_update_conversation_interaction
-AFTER INSERT ON messages
-FOR EACH ROW EXECUTE FUNCTION update_conversation_interaction();

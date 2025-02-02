@@ -15,9 +15,13 @@ likes_router = APIRouter()
 def read_post_likes(post: PostUnique) -> JSONResponse:
     return database.db_read_fetchall(
         """
-            SELECT user_id, post_id
-                FROM post_likes
-            WHERE post_id = %s;
+            SELECT 
+                user_id, 
+                post_id
+            FROM 
+                post_likes
+            WHERE 
+                post_id = %s;
         """, 
         (str(post.post_id), )
     ).to_json_response()
@@ -28,15 +32,22 @@ def create_post_like(post: PostUnique) -> Response:
     if post.user_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "missing user id")
     
-    return database.db_create(
+    r: database.DataBaseResponse = database.db_create(
         """
-            INSERT INTO post_likes (post_id, user_id)
-            VALUES (%s, %s) 
-            ON CONFLICT (post_id, user_id) DO NOTHING
-            RETURNING post_id;
+            INSERT INTO post_likes 
+                (post_id, user_id)
+            VALUES 
+                (%s, %s) 
+            ON CONFLICT 
+                (post_id, user_id) 
+            DO NOTHING
+            RETURNING 
+                post_id;
         """,
         (str(post.post_id), str(post.user_id))
-    ).to_response()
+    )
+
+    return r.to_json_response()
 
 
 @likes_router.delete("/likes/post")
@@ -44,52 +55,80 @@ def post_delete_like(post: PostUnique) -> Response:
     if post.user_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "missing user id")
     
-    return database.db_delete(
+    r: database.DataBaseResponse = database.db_delete(
         """
-            DELETE FROM post_likes
-            WHERE user_id = %s and post_id = %s RETURNING id;
+            DELETE FROM 
+                post_likes
+            WHERE 
+                user_id = %s AND 
+                post_id = %s 
+            RETURNING 
+                post_id;
         """,
         (str(post.user_id), str(post.post_id))
-    ).to_response()
+    )
+        
+    return r.to_response()
 
 
-@likes_router.get("/likes/comment")
-def read_comment_likes(comment: CommentUnique):
+@likes_router.get("/likes/comment", response_model=List[CommentLike])
+def read_comment_likes(comment: CommentUnique) -> JSONResponse:
     return database.db_read_fetchall(
         """ 
-        SELECT comment_id, user_id
-            FROM comments 
-        WHERE comment_id = %s;
+        SELECT 
+            comment_id, 
+            user_id,
+            post_id
+        FROM 
+            comments 
+        WHERE 
+            comment_id = %s;
         """,
         (str(comment.comment_id, ))
-    )
+    ).to_json_response()
 
 
 @likes_router.post("/likes/comments")
-def create_post_like(comment: CommentLike) -> Response:
-    if comment.user_id is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "missing user id")
-    
-    return database.db_create(
+def create_post_like(comment_like: CommentLike) -> Response:
+    r: database.DataBaseResponse = database.db_create(
         """
-            INSERT INTO comment_likes (comment_id, user_id)
-                VALUES (%s, %s) 
-            ON CONFLICT (comment_id, user_id) DO NOTHING
-            RETURNING comment_id;
+            INSERT INTO comment_likes 
+                (user_id, post_id, comment_id)
+            VALUES 
+                (%s, %s, %s) 
+            ON CONFLICT 
+                (user_id, post_id, comment_id) 
+            DO NOTHING
+            RETURNING 
+                comment_id;
         """,
-        (str(comment.comment_id), str(comment.user_id))
-    ).to_response()
+        (
+            str(comment_like.user_id), 
+            str(comment_like.post_id), 
+            str(comment_like.comment_id)
+        )
+    )    
+    return r.to_response()
 
 
-@likes_router.delete("/likes/comments")
-def post_delete_like(comment: CommentLike) -> Response:
-    if comment.user_id is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "missing user id")
-    
-    return database.db_delete(
+@likes_router.delete("/likes/comments", status_code=status.HTTP_204_NO_CONTENT)
+def post_delete_like(comment_like: CommentLike) -> Response:
+    r: database.DataBaseResponse = database.db_delete(
         """
-            DELETE FROM comment_likes
-            WHERE user_id = %s and comment_id = %s RETURNING id;
+            DELETE FROM 
+                comment_likes
+            WHERE 
+                user_id = %s AND 
+                post_id = %s AND
+                comment_id = %s
+            RETURNING 
+                comment_id;
         """,
-        (str(comment.user_id), str(comment.comment_id))
-    ).to_response()
+        (
+            str(comment_like.user_id), 
+            str(comment_like.post_id), 
+            str(comment_like.comment_id)
+        )
+    )
+
+    return r.to_response()
