@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     close_db()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, version="1.0.0")
 
 
 app.include_router(users_router, prefix="/api", tags=["users"])

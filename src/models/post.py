@@ -1,6 +1,5 @@
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
 from src.models.metric import Metrics
 from src.models.comment import Comment
 
@@ -14,8 +13,8 @@ class Post(BaseModel):
     language: str
     status: Optional[str] = 'published'
     is_pinned: Optional[bool] = False
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
     metrics: Optional[Metrics] = Metrics()    
     comments: Optional[list[Comment]] = []
 

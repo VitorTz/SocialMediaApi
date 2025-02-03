@@ -161,19 +161,19 @@ def db_get_metric_from_post(cur: psycopg.Cursor, post_id: int, metric: str) -> i
             SELECT COALESCE(
                 (
                     SELECT 
-                        counter 
+                        counter
                     FROM 
-                        post_metrics 
+                        post_metrics
                     WHERE 
-                        post_id = %s AND 
-                        type = %s;
-                ),
-                0
-            ) as total;
+                        post_id = %s
+                        AND type = %s
+                    ),
+                    0
+            ) AS counter;
         """,
         (str(post_id), metric)
     )
-    return cur.fetchone()['total']
+    return cur.fetchone()['counter']
 
 
 def db_count_num_likes_from_post(post_id: int) -> int:
@@ -359,9 +359,16 @@ def db_register_post_hashtags(content: str, post_id: int) -> None:
 
 def db_get_post_comments(post_id: int) -> list[Comment]:
     r: DataBaseResponse = db_read_fetchall(
-        "SELECT get_post_comments(%s);", 
+        """
+            SELECT 
+                get_post_comments(1) 
+            AS comments;
+        """, 
         (str(post_id), )
     )
+    
     if r.status_code == status.HTTP_200_OK:
+        if r.content[0]['get_post_comments'] is None:
+            return []
         return r.content
     return []

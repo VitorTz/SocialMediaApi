@@ -4,10 +4,10 @@ from typing import Optional
 
 class Metrics(BaseModel):
 
-    num_impressions: Optional[int] = 0
-    num_views: Optional[int] = 0
-    num_likes: Optional[int] = 0
-    num_comments: Optional[int] = 0
+    impressions: Optional[int] = 0
+    views: Optional[int] = 0
+    likes: Optional[int] = 0
+    comments: Optional[int] = 0
 
 
 

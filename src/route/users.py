@@ -19,9 +19,9 @@ def read_user(user: UserUnique) -> JSONResponse:
                 email,
                 full_name,
                 bio,
-                TO_CHAR(birthdate, 'DD-MM-YYYY') AS birthdate,
-                TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') AS created_at,
-                TO_CHAR(updated_at, 'DD-MM-YYYY HH24:MI:SS') AS updated_at,
+                birthdate,
+                created_at,
+                updated_at,
                 is_verified
             FROM 
                 users 
@@ -39,9 +39,9 @@ def read_user(user: UserUnique) -> JSONResponse:
                 email,
                 full_name,
                 bio,
-                TO_CHAR(birthdate, 'DD-MM-YYYY') AS birthdate,
-                TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') AS created_at,
-                TO_CHAR(updated_at, 'DD-MM-YYYY HH24:MI:SS') AS updated_at,
+                birthdate,
+                created_at,
+                updated_at,
                 is_verified
             FROM 
                 users 
@@ -138,7 +138,7 @@ def get_user_viewed_posts(
     limit: Optional[int] = Query(default=40, description="Num posts limit (default: 40)"),
     offset: Optional[int] = Query(default=0, description="Pagination offset (default: 0)")
 ) -> JSONResponse:
-    r: database.DataBaseResponse = database.db_read_fetchall(
+    return database.db_read_fetchall(
         """
             SELECT 
                 post_id,
@@ -151,8 +151,9 @@ def get_user_viewed_posts(
                 language,
                 status,
                 is_pinned,
-                TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') AS created_at,
-                TO_CHAR(updated_at, 'DD-MM-YYYY HH24:MI:SS') AS updated_at
+                created_at,
+                updated_at,
+                get_post_metrics(post_id) AS metrics
             FROM 
                 user_viewed_posts uv
             INNER JOIN 
@@ -167,12 +168,4 @@ def get_user_viewed_posts(
             OFFSET %s;
         """,
         (str(user.user_id), limit, offset)
-    )
-
-    if r.status_code != status.HTTP_200_OK:
-        return r.to_json_response()
-
-    for post in r.content:
-        post['metrics'] = database.db_get_post_metrics(post['post_id']).model_dump()
-    
-    return r.to_json_response()
+    ).to_json_response()    

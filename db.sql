@@ -105,29 +105,6 @@ CREATE INDEX idx_user_viewed_posts ON user_viewed_posts(user_id, viewed_at DESC)
 
 -------------------------------------------------------------------------------
 
-CREATE TABLE hashtags (
-    hashtag_id SERIAL PRIMARY KEY,
-    name CITEXT UNIQUE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE post_hashtags (
-    user_id INTEGER NOT NULL,
-    post_id INTEGER NOT NULL,
-    hashtag_id INTEGER NOT NULL,
-    PRIMARY KEY (user_id, post_id, hashtag_id),
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT post_hashtags_fk_user FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
-    CONSTRAINT post_hashtags_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE,
-    CONSTRAINT post_hashtags_fk_hashtag FOREIGN KEY (hashtag_id) REFERENCES hashtags (hashtag_id) ON DELETE CASCADE
-) PARTITION BY HASH (post_id);
-CREATE TABLE post_hashtags_0 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 0);
-CREATE TABLE post_hashtags_1 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 1);
-CREATE TABLE post_hashtags_2 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 2);
-CREATE TABLE post_hashtags_3 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 3);
-
--------------------------------------------------------------------------------
-
 CREATE TABLE comments (
     comment_id SERIAL PRIMARY KEY NOT NULL,
     user_id INTEGER NOT NULL,
@@ -155,12 +132,35 @@ CREATE TABLE comment_likes (
     PRIMARY KEY(user_id, post_id, comment_id),
     CONSTRAINT comment_likes_fk_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     CONSTRAINT comment_likes_fk_comment FOREIGN KEY (comment_id) REFERENCES comments(comment_id) ON DELETE CASCADE
-) PARTITION BY HASH (post_id)
+) PARTITION BY HASH (post_id);
 CREATE TABLE comment_likes_0 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 0);
 CREATE TABLE comment_likes_1 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 1);
 CREATE TABLE comment_likes_2 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 2);
 CREATE TABLE comment_likes_3 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 CREATE INDEX idx_comment_likes ON comment_likes (post_id);
+
+-------------------------------------------------------------------------------
+
+CREATE TABLE hashtags (
+    hashtag_id SERIAL PRIMARY KEY,
+    name CITEXT UNIQUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE post_hashtags (
+    user_id INTEGER NOT NULL,
+    post_id INTEGER NOT NULL,
+    hashtag_id INTEGER NOT NULL,
+    PRIMARY KEY (user_id, post_id, hashtag_id),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT post_hashtags_fk_user FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
+    CONSTRAINT post_hashtags_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE,
+    CONSTRAINT post_hashtags_fk_hashtag FOREIGN KEY (hashtag_id) REFERENCES hashtags (hashtag_id) ON DELETE CASCADE
+) PARTITION BY HASH (post_id);
+CREATE TABLE post_hashtags_0 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 0);
+CREATE TABLE post_hashtags_1 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 1);
+CREATE TABLE post_hashtags_2 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 2);
+CREATE TABLE post_hashtags_3 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 
 -------------------------------------------------------------------------------
 
@@ -290,41 +290,37 @@ CREATE INDEX idx_follower ON follows(follower_id);
 -- FUNCTIONS AND TRIGGERS
 
 -- Atualiza o campo path
-CREATE OR REPLACE FUNCTION set_comment_path_before()
+CREATE OR REPLACE FUNCTION set_comment_path()
 RETURNS TRIGGER AS $$
 DECLARE
-    new_comment_id INTEGER;
     parent_path LTREE;
 BEGIN
-    -- Se o comment_id não for informado (geralmente nulo), obtenha-o manualmente
+    -- Verifica se o comment_id já foi atribuído pelo mecanismo SERIAL.
     IF NEW.comment_id IS NULL THEN
-        NEW.comment_id := nextval(pg_get_serial_sequence('comments', 'comment_id'));
+        RAISE EXCEPTION 'comment_id não foi atribuído. Verifique a configuração do SERIAL.';
     END IF;
     
-    new_comment_id := NEW.comment_id;
-    
-    -- Se não houver comentário pai, define o path como o próprio comment_id convertido para LTREE
+    -- Se não houver comentário pai, define o path como o próprio comment_id convertido para LTREE.
     IF NEW.parent_comment_id IS NULL THEN
-        NEW.path := new_comment_id::text::ltree;
+        NEW.path := NEW.comment_id::text::ltree;
     ELSE
         -- Recupera o path do comentário pai
         SELECT path INTO parent_path FROM comments WHERE comment_id = NEW.parent_comment_id;
         IF parent_path IS NULL THEN
             RAISE EXCEPTION 'O comentário pai com id % não foi encontrado ou não possui path definido.', NEW.parent_comment_id;
         END IF;
-        -- Concatena o path do pai com o novo comment_id
-        NEW.path := parent_path || new_comment_id::text::ltree;
+        -- Concatena o path do pai com o comment_id do novo comentário
+        NEW.path := parent_path || NEW.comment_id::text::ltree;
     END IF;
     
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-
 CREATE TRIGGER trigger_set_comment_path
 BEFORE INSERT ON comments
 FOR EACH ROW
-EXECUTE FUNCTION set_comment_path_before();
+EXECUTE FUNCTION set_comment_path();
 
 -------------------------------------------------------------------------------
 
@@ -556,3 +552,47 @@ BEGIN
     DESC;
 END;
 $$ LANGUAGE plpgsql;
+
+-------------------------------------------------------------------------------
+
+--Post Metrics
+CREATE OR REPLACE FUNCTION get_post_metrics(target_post_id INT)
+RETURNS JSONB AS $$
+WITH base_metrics AS (
+    SELECT COALESCE(
+        jsonb_object_agg(m::text, COALESCE(pm.counter, 0)),
+        '{}'::jsonb
+    ) AS metrics
+    FROM unnest(enum_range(NULL::metric_type)) AS m
+    LEFT JOIN post_metrics pm 
+        ON pm.post_id = target_post_id 
+       AND pm.type = m
+)
+SELECT metrics || jsonb_build_object(
+    'comments', (SELECT COUNT(*) FROM comments WHERE post_id = target_post_id),
+    'likes',    (SELECT COUNT(*) FROM post_likes WHERE post_id = target_post_id)
+)
+FROM base_metrics;
+$$ LANGUAGE sql STABLE;
+
+-------------------------------------------------------------------------------
+
+-- Comment Metrics
+CREATE OR REPLACE FUNCTION get_comment_metrics(target_comment_id INT)
+RETURNS JSONB AS $$
+WITH base_metrics AS (
+    SELECT COALESCE(
+        jsonb_object_agg(m::text, COALESCE(cm.counter, 0)),
+        '{}'::jsonb
+    ) AS metrics
+    FROM unnest(enum_range(NULL::metric_type)) AS m
+    LEFT JOIN comment_metrics cm 
+        ON cm.comment_id = target_comment_id 
+       AND cm.type = m
+)
+SELECT metrics || jsonb_build_object(
+    'comments', (SELECT COUNT(*) FROM comments WHERE parent_comment_id = target_comment_id),
+    'likes',    (SELECT COUNT(*) FROM comment_likes WHERE comment_id = target_comment_id)
+)
+FROM base_metrics;
+$$ LANGUAGE sql STABLE;

@@ -12,7 +12,11 @@ comments_router = APIRouter()
 @comments_router.get("/comments/post/all", response_model=List[Comment])
 def read_all_comments_from_post(post: PostUnique) -> JSONResponse:
     return database.db_read_fetchall(
-        "SELECT get_post_comments(%s);",
+        """
+            SELECT COALESCE
+                (get_post_comments(p.post_id), '[]'::jsonb) 
+            AS comments
+        """,
         (str(post.post_id), )
     ).to_json_response()
 
@@ -26,8 +30,8 @@ def read_parent_comments_from_post(post: PostUnique):
                 user_id,
                 post_id,
                 content,
-                TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') AS created_at,
-                TO_CHAR(updated_at, 'DD-MM-YYYY HH24:MI:SS') AS updated_at
+                created_at,
+                updated_at
             FROM 
                 comments
             WHERE 

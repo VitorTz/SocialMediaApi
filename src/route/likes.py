@@ -17,7 +17,8 @@ def read_post_likes(post: PostUnique) -> JSONResponse:
         """
             SELECT 
                 user_id, 
-                post_id
+                post_id,
+                created_at
             FROM 
                 post_likes
             WHERE 
@@ -28,11 +29,8 @@ def read_post_likes(post: PostUnique) -> JSONResponse:
 
 
 @likes_router.post("/likes/post")
-def create_post_like(post: PostUnique) -> Response:
-    if post.user_id is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "missing user id")
-    
-    r: database.DataBaseResponse = database.db_create(
+def create_post_like(post_like: PostLike) -> Response:
+    return database.db_create(
         """
             INSERT INTO post_likes 
                 (post_id, user_id)
@@ -44,18 +42,13 @@ def create_post_like(post: PostUnique) -> Response:
             RETURNING 
                 post_id;
         """,
-        (str(post.post_id), str(post.user_id))
-    )
-
-    return r.to_json_response()
+        (str(post_like.post_id), str(post_like.user_id))
+    ).to_json_response()    
 
 
 @likes_router.delete("/likes/post")
-def post_delete_like(post: PostUnique) -> Response:
-    if post.user_id is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "missing user id")
-    
-    r: database.DataBaseResponse = database.db_delete(
+def post_delete_like(post_like: PostLike) -> Response:
+    return database.db_delete(
         """
             DELETE FROM 
                 post_likes
@@ -65,10 +58,8 @@ def post_delete_like(post: PostUnique) -> Response:
             RETURNING 
                 post_id;
         """,
-        (str(post.user_id), str(post.post_id))
-    )
-        
-    return r.to_response()
+        (str(post_like.user_id), str(post_like.post_id))
+    ).to_response()    
 
 
 @likes_router.get("/likes/comment", response_model=List[CommentLike])
@@ -78,7 +69,8 @@ def read_comment_likes(comment: CommentUnique) -> JSONResponse:
         SELECT 
             comment_id, 
             user_id,
-            post_id
+            post_id,
+            created_at
         FROM 
             comments 
         WHERE 
@@ -90,7 +82,7 @@ def read_comment_likes(comment: CommentUnique) -> JSONResponse:
 
 @likes_router.post("/likes/comments")
 def create_post_like(comment_like: CommentLike) -> Response:
-    r: database.DataBaseResponse = database.db_create(
+    return database.db_create(
         """
             INSERT INTO comment_likes 
                 (user_id, post_id, comment_id)
@@ -107,13 +99,12 @@ def create_post_like(comment_like: CommentLike) -> Response:
             str(comment_like.post_id), 
             str(comment_like.comment_id)
         )
-    )    
-    return r.to_response()
+    ).to_response()    
 
 
 @likes_router.delete("/likes/comments", status_code=status.HTTP_204_NO_CONTENT)
 def post_delete_like(comment_like: CommentLike) -> Response:
-    r: database.DataBaseResponse = database.db_delete(
+    return database.db_delete(
         """
             DELETE FROM 
                 comment_likes
@@ -129,6 +120,4 @@ def post_delete_like(comment_like: CommentLike) -> Response:
             str(comment_like.post_id), 
             str(comment_like.comment_id)
         )
-    )
-
-    return r.to_response()
+    ).to_response()    

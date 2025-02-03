@@ -2,39 +2,57 @@ from fastapi import APIRouter, status, Query
 from fastapi.responses import JSONResponse, Response
 from src.models.post import Post, PostUnique, PostUpdate, PostCollection
 from src.models.user import UserUnique
-from typing import Optional
+from typing import Optional, List
 from src import database
 
 
 posts_router = APIRouter()
 
+@posts_router.get("/posts/all", response_model=List[Post])
+def read_all_posts():
+    return database.db_read_fetchall(
+        """
+            SELECT
+                p.post_id,
+                p.user_id,
+                p.title,
+                p.content,
+                p.language,
+                p.status,
+                p.is_pinned,
+                p.created_at,
+                p.updated_at,
+                COALESCE(get_post_comments(p.post_id), '[]'::jsonb) AS comments,
+                get_post_metrics(p.post_id) AS metrics
+            FROM 
+                posts p;            
+        """        
+    ).to_json_response()
+
 
 @posts_router.get("/posts", response_model=Post)
 def read_post(post: PostUnique) -> JSONResponse:
-    r: database.DataBaseResponse = database.db_read_fetchone(
+    return database.db_read_fetchone(
         """
             SELECT
-                post_id,
-                user_id,
-                title,
-                content,
-                language,
-                status,
-                is_pinned,
-                TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') AS created_at,
-                TO_CHAR(updated_at, 'DD-MM-YYYY HH24:MI:SS') AS updated_at
+                p.post_id,
+                p.user_id,
+                p.title,
+                p.content,
+                p.language,
+                p.status,
+                p.is_pinned,
+                p.created_at,
+                p.updated_at,
+                COALESCE(get_post_comments(p.post_id), '[]'::jsonb) AS comments,
+                get_post_metrics(p.post_id) AS metrics
             FROM 
-                posts 
+                posts p
             WHERE 
-                post_id = %s;
+                p.post_id = %s;
         """,
         (str(post.post_id), )
-    )
-    
-    post['comments'] = database.db_get_post_comments(post['post_id'])
-    post['metrics'] = database.db_get_post_metrics(post['post_id']).model_dump()
-    
-    return r.to_json_response()    
+    ).to_json_response()
 
 
 @posts_router.get("/posts/user/following/posts", response_model=PostCollection)
@@ -44,15 +62,17 @@ def read_user_home_page(
     offset: Optional[int] = Query(default=0, description="Pagination offset (default: 0)"),
     limit: Optional[int] = Query(default=20, description="Num posts limit (default: 20)")
 ) -> JSONResponse:
-    r: database.DataBaseResponse = database.db_read_fetchall(
+    return database.db_read_fetchall(
         """
             SELECT 
                 p.post_id,
                 p.title,
                 p.content,
                 p.language,                
-                TO_CHAR(created_at, 'DD-MM-YYYY HH24:MI:SS') AS created_at,
-                TO_CHAR(updated_at, 'DD-MM-YYYY HH24:MI:SS') AS updated_at                
+                created_at,
+                updated_at,
+                COALESCE(get_post_comments(p.post_id), '[]'::jsonb) AS comments,
+                get_post_metrics(p.post_id) AS metrics
             FROM 
                 posts p
             INNER JOIN 
@@ -69,27 +89,7 @@ def read_user_home_page(
             OFFSET %s;
         """,
         (str(user.user_id), days, limit, offset)
-    )
-
-    if r.status_code != status.HTTP_200_OK:
-        return r.to_response()
-    
-    for post in r.content:
-        post['comments'] = database.db_get_post_comments(post['post_id'])
-        post['metrics'] = database.db_get_post_metrics(post['post_id']).model_dump()
-        database.db_update_metric_from_post(post['post_id'], 'views')
-
-    post_collection: PostCollection = {
-        "posts": r.content,
-        "offset": offset,
-        "limit": limit,
-        "total": len(r.content)
-    }
-
-    return JSONResponse(
-        post_collection, 
-        r.status_code
-    )
+    ).to_json_response()
 
 
 @posts_router.post("/posts")

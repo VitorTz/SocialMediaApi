@@ -16,10 +16,14 @@ metrics_router = APIRouter()
 
 @metrics_router.get("/metrics/post", response_model=Metrics)
 def get_post_metrics(post: PostUnique) -> JSONResponse:    
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content=database.db_get_post_metrics(post.post_id).model_dump()
-    )
+    return database.db_read_fetchone(
+        """
+            SELECT 
+                get_post_metrics_json(%s)
+            AS metrics;
+        """,
+        (str(post.post_id), )
+    ).to_json_response()
 
 
 ############################ COMMENTS ############################
@@ -27,10 +31,14 @@ def get_post_metrics(post: PostUnique) -> JSONResponse:
 
 @metrics_router.get("/metrics/comment", response_model=Metrics)
 def get_comment_metrics(comment: CommentUnique) -> JSONResponse:    
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content=database.db_get_comment_metrics(comment.comment_id).model_dump()
-    )
+    return database.db_read_fetchone(
+        """
+            SELECT 
+                get_comment_metrics(%s)
+            AS metrics;
+        """,
+        (str(comment.comment_id), )
+    ).to_json_response()
 
 
 ############################ HASHTAGS ############################
@@ -66,7 +74,7 @@ def get_most_used_hashtags(
 ):
     return database.db_read_fetchall(
         """
-           SELECT * FROM get_hashtags_usage(%s);
+           SELECT get_hashtags_usage(%s);
         """,
         (day_interval, )
-    )
+    ).to_json_response()

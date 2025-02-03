@@ -1,6 +1,5 @@
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
 
 
 class Comment(BaseModel):
@@ -9,8 +8,8 @@ class Comment(BaseModel):
     post_id: int
     content: str
     parent_comment_id: Optional[int] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
     thread: Optional[list['Comment']] = []
 
 
