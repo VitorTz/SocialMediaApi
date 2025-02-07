@@ -7,59 +7,51 @@ from src import database
 
 users_router = APIRouter()
 
+@users_router.get("/users/all", response_model=List[User])
+def read_all_users():
+    return database.db_read_fetchall(
+        """
+        SELECT
+            user_id,
+            username,
+            email,
+            full_name,
+            bio,
+            TO_CHAR(birthdate, 'YYYY-MM-DD') as birthdate,            
+            TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+            TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at,
+            is_verified
+        FROM 
+            users;        
+        """
+    ).response_with_content()
+
 
 @users_router.get("/users", response_model=User)
 def read_user(user: UserUnique) -> JSONResponse:
-    if user.user_id is not None:
-        return database.db_read_fetchone(
-            """
-            SELECT
-                user_id,
-                username,
-                email,
-                full_name,
-                bio,
-                birthdate,
-                created_at,
-                updated_at,
-                is_verified
-            FROM 
-                users 
-            WHERE 
-                user_id = %s;
-            """, (str(user.user_id), )
-        ).to_json_response()
-
-    if user.username is not None:
-        return database.db_read_fetchone(
-            """
-            SELECT
-                user_id,
-                username,
-                email,
-                full_name,
-                bio,
-                birthdate,
-                created_at,
-                updated_at,
-                is_verified
-            FROM 
-                users 
-            WHERE 
-                username = %s;
-            """, (user.username, )
-        ).to_json_response()
-
-    return JSONResponse(
-        content={"detail": "bad requests"},
-        status_code=status.HTTP_400_BAD_REQUEST
-    )
-        
+    return database.db_read_fetchone(
+        """
+        SELECT
+            user_id,
+            username,
+            email,
+            full_name,
+            bio,
+            TO_CHAR(birthdate, 'YYYY-MM-DD') as birthdate,            
+            TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+            TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at,
+            is_verified
+        FROM 
+            users 
+        WHERE 
+            user_id = %s;
+        """, (str(user.user_id), )
+    ).response_with_content()
 
 
 @users_router.post("/users")
 def create_user(user: User) -> Response:
-    status: int = database.db_create(
+    return database.db_create(
         """
             INSERT INTO users (
                 username,
@@ -80,8 +72,7 @@ def create_user(user: User) -> Response:
             user.birthdate,
             user.is_verified
         )
-    ).status_code
-    return Response(status_code=status)
+    ).response()
 
 
 @users_router.put("/users")
@@ -114,7 +105,7 @@ def update_user(user: UserUpdate) -> Response:
             user.is_verified,
             str(user.user_id)
         )
-    ).to_response()
+    ).response()
 
 
 @users_router.delete("/users")
@@ -129,7 +120,7 @@ def delete_user(user: UserUnique) -> Response:
                 user_id;
         """,
         (str(user.user_id), )
-    ).to_response()
+    ).response()
 
 
 @users_router.get("/users/posts/view_history", response_model=List[Post])
@@ -141,19 +132,19 @@ def get_user_viewed_posts(
     return database.db_read_fetchall(
         """
             SELECT 
-                post_id,
-                user_id,
-                title,
+                p.post_id,
+                p.user_id,
+                p.title,
                 CASE 
-                    WHEN LENGTH(content) > 100 THEN SUBSTRING(content, 1, 100) || '...' 
-                    ELSE content 
+                    WHEN LENGTH(p.content) > 100 THEN SUBSTRING(p.content, 1, 100) || '...' 
+                    ELSE p.content 
                 END AS content,
-                language,
-                status,
-                is_pinned,
-                created_at,
-                updated_at,
-                get_post_metrics(post_id) AS metrics
+                p.language,
+                p.status,
+                p.is_pinned,                
+                TO_CHAR(p.created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+                TO_CHAR(p.updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at,                
+                get_post_metrics(p.post_id) AS metrics
             FROM 
                 user_viewed_posts uv
             INNER JOIN 
@@ -168,4 +159,4 @@ def get_user_viewed_posts(
             OFFSET %s;
         """,
         (str(user.user_id), limit, offset)
-    ).to_json_response()    
+    ).response_with_content()

@@ -8,6 +8,7 @@ from src import database
 
 posts_router = APIRouter()
 
+
 @posts_router.get("/posts/all", response_model=List[Post])
 def read_all_posts():
     return database.db_read_fetchall(
@@ -19,15 +20,15 @@ def read_all_posts():
                 p.content,
                 p.language,
                 p.status,
-                p.is_pinned,
-                p.created_at,
-                p.updated_at,
-                COALESCE(get_post_comments(p.post_id), '[]'::jsonb) AS comments,
+                p.is_pinned,                
+                TO_CHAR(p.created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+                TO_CHAR(p.updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at,
+                get_post_comments(p.post_id) AS comments,
                 get_post_metrics(p.post_id) AS metrics
             FROM 
                 posts p;            
         """        
-    ).to_json_response()
+    ).response_with_content()
 
 
 @posts_router.get("/posts", response_model=Post)
@@ -41,10 +42,10 @@ def read_post(post: PostUnique) -> JSONResponse:
                 p.content,
                 p.language,
                 p.status,
-                p.is_pinned,
-                p.created_at,
-                p.updated_at,
-                COALESCE(get_post_comments(p.post_id), '[]'::jsonb) AS comments,
+                p.is_pinned,                
+                TO_CHAR(p.created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+                TO_CHAR(p.updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at,
+                get_post_comments(p.post_id) AS comments,
                 get_post_metrics(p.post_id) AS metrics
             FROM 
                 posts p
@@ -52,7 +53,39 @@ def read_post(post: PostUnique) -> JSONResponse:
                 p.post_id = %s;
         """,
         (str(post.post_id), )
-    ).to_json_response()
+    ).response_with_content()
+
+
+
+@posts_router.get("/posts/user", response_model=PostCollection)
+def read_user_posts(
+    user: UserUnique,    
+    offset: Optional[int] = Query(default=0, description="Pagination offset (default: 0)"),
+    limit: Optional[int] = Query(default=20, description="Num posts limit (default: 20)")
+) -> JSONResponse:
+    return database.db_read_fetchall(
+        """
+            SELECT 
+                p.post_id,
+                p.title,
+                p.content,
+                p.language,                                
+                TO_CHAR(p.created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+                TO_CHAR(p.updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at,
+                get_post_comments(p.post_id) AS comments,
+                get_post_metrics(p.post_id) AS metrics
+            FROM 
+                posts p            
+            WHERE 
+                p.user_id = %s AND                
+                p.status = 'published'
+            ORDER BY 
+                p.created_at DESC
+            LIMIT %s
+            OFFSET %s;
+        """,
+        (str(user.user_id), limit, offset)
+    ).response_with_content()
 
 
 @posts_router.get("/posts/user/following/posts", response_model=PostCollection)
@@ -68,10 +101,10 @@ def read_user_home_page(
                 p.post_id,
                 p.title,
                 p.content,
-                p.language,                
-                created_at,
-                updated_at,
-                COALESCE(get_post_comments(p.post_id), '[]'::jsonb) AS comments,
+                p.language,                                
+                TO_CHAR(p.created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+                TO_CHAR(p.updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at,
+                get_post_comments(p.post_id) AS comments,
                 get_post_metrics(p.post_id) AS metrics
             FROM 
                 posts p
@@ -80,16 +113,16 @@ def read_user_home_page(
             INNER JOIN 
                 users u ON u.user_id = f.follower_id
             WHERE 
-                f.followed_id = %s
-                AND p.status = 'published'
-                AND p.updated_at >= CURRENT_TIMESTAMP - INTERVAL '%s days'
+                f.followed_id = %s AND 
+                p.status = 'published' AND 
+                p.created_at >= CURRENT_TIMESTAMP - INTERVAL '%s days'
             ORDER BY 
-                p.updated_at DESC
+                p.created_at DESC
             LIMIT %s
             OFFSET %s;
         """,
         (str(user.user_id), days, limit, offset)
-    ).to_json_response()
+    ).response_with_content()
 
 
 @posts_router.post("/posts")
@@ -119,11 +152,11 @@ def create_post(post: Post) -> Response:
         )
     )
     if r.status_code != status.HTTP_201_CREATED:
-        return r.to_response()
+        return r.response()
     
     database.db_register_post_hashtags(post.content, r.content['post_id'])
 
-    return r.to_response()
+    return r.response()
 
 
 @posts_router.put("/posts")
@@ -153,11 +186,11 @@ def update_post(post: PostUpdate) -> Response:
     )
 
     if r.status_code != status.HTTP_201_CREATED:
-        return r.to_response()
+        return r.response()
     
     database.db_register_post_hashtags(post.content, r.content['post_id'])
 
-    return r.to_response()
+    return r.response()
 
 
 @posts_router.delete("/posts")
@@ -172,5 +205,5 @@ def delete_post(post: PostUnique) -> Response:
                 post_id;
         """,
         (str(post.post_id), )
-    ).to_response()
+    ).response()
 

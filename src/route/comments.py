@@ -9,18 +9,6 @@ from src import database
 comments_router = APIRouter()
 
 
-@comments_router.get("/comments/post/all", response_model=List[Comment])
-def read_all_comments_from_post(post: PostUnique) -> JSONResponse:
-    return database.db_read_fetchall(
-        """
-            SELECT COALESCE
-                (get_post_comments(p.post_id), '[]'::jsonb) 
-            AS comments
-        """,
-        (str(post.post_id), )
-    ).to_json_response()
-
-
 @comments_router.get("/comments/post/parent", response_model=List[Comment])
 def read_parent_comments_from_post(post: PostUnique):
     return database.db_read_fetchall(
@@ -29,9 +17,10 @@ def read_parent_comments_from_post(post: PostUnique):
                 comment_id,
                 user_id,
                 post_id,
-                content,
-                created_at,
-                updated_at
+                content,                
+                TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
+                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at,
+                get_comment_metrics(comment_id) as metrics
             FROM 
                 comments
             WHERE 
@@ -39,36 +28,27 @@ def read_parent_comments_from_post(post: PostUnique):
                 parent_comment_id is NULL;
         """,
         (str(post.post_id), )
-    ).to_json_response()
+    ).response_with_content()
 
     
 @comments_router.get("/comments/comment", response_model=Comment)
 def read_comment(comment: CommentUnique):
-    return database.db_read_fetchone(
-        "SELECT get_comment_thread(%s);",
+    r: database.DataBaseResponse = database.db_read_fetchone(
+        """
+            SELECT 
+                get_comment_children(%s) 
+            AS 
+                comments;
+        """,
         (str(comment.comment_id), )
-    ).to_json_response()
+    )
+    r.content = r.content['comments']
+    return r.response_with_content()
+
 
 
 @comments_router.post("/comments")
-def create_comment(comment: Comment) -> Response:
-    if comment.parent_comment_id is None:
-        return database.db_create(
-            """
-                INSERT INTO comments 
-                    (user_id, post_id, content)
-                VALUES 
-                    (%s, %s, %s) 
-                RETURNING 
-                    comment_id;
-            """,
-            (
-                str(comment.user_id),
-                str(comment.post_id),
-                comment.content
-            )
-        ).to_response()
-    
+def create_comment(comment: Comment) -> Response:    
     return database.db_create(
         """
             INSERT INTO comments 
@@ -82,10 +62,10 @@ def create_comment(comment: Comment) -> Response:
             str(comment.user_id),
             str(comment.post_id),
             comment.content,
-            str(comment.parent_comment_id)
+            comment.parent_comment_id
         )
-    ).to_response()
-    
+    ).response()    
+
 
 
 @comments_router.put("/comments")
@@ -101,7 +81,7 @@ def update_comment(comment: CommentUpdate) -> Response:
                 comment_id;
         """,
         (comment.content, str(comment.comment_id))
-    ).to_response()
+    ).response()
 
 
 @comments_router.delete("/comments")
@@ -116,4 +96,4 @@ def delete_comment(comment: CommentUnique) -> Response:
                 comment_id;
         """,
         (str(comment.comment_id), )
-    ).to_response()
+    ).response()

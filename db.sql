@@ -1,5 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS ltree;
 CREATE EXTENSION IF NOT EXISTS citext;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -------------------------------------------------------------------------------
 
@@ -23,7 +24,7 @@ CREATE TABLE users (
 -------------------------------------------------------------------------------
 
 CREATE TABLE languages (
-    code VARCHAR(8) PRIMARY KEY CHECK (code ~ '^[a-z]{2}(-[A-Z]{2})?$'),
+    code VARCHAR(5) PRIMARY KEY CHECK (code ~ '^[a-z]{2}(-[A-Z]{2})?$'),
     name VARCHAR(64) NOT NULL,
     native_name VARCHAR(64)
 );
@@ -33,8 +34,8 @@ INSERT INTO  languages
 VALUES
     ('zh', 'Chinese', '中文'),
     ('es', 'Spanish', 'Español'),
-    ('en', 'English', 'English'),
-    ('pt', 'Portuguese', 'Português'),    
+    ('en-US', 'English', 'English'),
+    ('pt-BR', 'Portuguese', 'Português'),    
     ('ja', 'Japanese', '日本語');
 
 -------------------------------------------------------------------------------
@@ -63,9 +64,12 @@ CREATE TABLE posts (
     CONSTRAINT posts_fk_language FOREIGN KEY (language) REFERENCES languages (code)
 );
 CREATE INDEX idx_posts_user_id ON posts(user_id);
+CREATE INDEX idx_posts_user_created_at ON posts (user_id, created_at DESC);
+CREATE INDEX idx_posts_status_order ON posts (status, created_at DESC);
 CREATE INDEX idx_posts_language ON posts(language);
 CREATE INDEX idx_posts_created_at ON posts(created_at);
 CREATE INDEX idx_posts_published ON posts(status) WHERE status = 'published';
+CREATE INDEX idx_posts_published_created_at ON posts(created_at) WHERE status = 'published';
 CREATE INDEX idx_posts_updated_at ON posts(updated_at);
 CREATE INDEX idx_posts_user_status ON posts(user_id, status);
 
@@ -87,8 +91,6 @@ CREATE TABLE post_likes_3 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, RE
 
 -------------------------------------------------------------------------------
 
--- Histórico de post vistos por um usuário
--- Um post é considerado visto quanto o usuário clica para entrar na postagem
 CREATE TABLE user_viewed_posts (
     user_id INTEGER NOT NULL,
     post_id INTEGER NOT NULL, 
@@ -121,7 +123,7 @@ CREATE TABLE comments (
 CREATE INDEX idx_comments ON comments (post_id);
 CREATE INDEX idx_comments_parent ON comments (parent_comment_id);
 CREATE INDEX idx_comments_path ON comments USING GIST (path);
-
+CREATE INDEX idx_comments_order ON comments (post_id, created_at);
 -------------------------------------------------------------------------------
 
 CREATE TABLE comment_likes (
@@ -171,8 +173,6 @@ CREATE TYPE metric_type AS ENUM (
 
 -------------------------------------------------------------------------------
 
--- Tabela para contagem de métricas de uma postagem
--- Exemplo: (impressions, views)
 CREATE TABLE post_metrics (
     post_id INTEGER NOT NULL,
     counter BIGINT NOT NULL DEFAULT 0,    
@@ -189,8 +189,6 @@ ALTER TABLE post_metrics_views SET (fillfactor = 80);
 
 -------------------------------------------------------------------------------
 
--- Tabela para contagem de métricas de um comentário
--- Exemplo: (impressions, views)
 CREATE TABLE comment_metrics (
     comment_id INTEGER NOT NULL,
     counter BIGINT NOT NULL DEFAULT 0,
@@ -213,7 +211,7 @@ CREATE TABLE direct_conversations (
     user1_id INTEGER NOT NULL,
     user2_id INTEGER NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_interaction_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,    
+    last_interaction_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
     UNIQUE (user1_id, user2_id),
     CONSTRAINT direct_conversations_fk_user1 FOREIGN KEY (user1_id) REFERENCES users(user_id),
     CONSTRAINT direct_conversations_fk_user2 FOREIGN KEY (user2_id) REFERENCES users(user_id),
@@ -230,25 +228,17 @@ CREATE TABLE messages (
     sender_id INTEGER NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    readed_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_read BOOLEAN DEFAULT FALSE,
+    is_edited BOOLEAN DEFAULT FALSE,
     reply_to_message_id INTEGER,
     CONSTRAINT messages_fk_conversation_id FOREIGN KEY (conversation_id) REFERENCES direct_conversations(conversation_id) ON DELETE CASCADE,
     CONSTRAINT messages_fk_sender_id FOREIGN KEY (sender_id) REFERENCES users(user_id) ON DELETE CASCADE,
     CONSTRAINT messages_fk_reply_to_id FOREIGN KEY (reply_to_message_id) REFERENCES messages(message_id) ON DELETE SET NULL
 );
-CREATE INDEX idx_messages_conversation ON messages(conversation_id);
+CREATE INDEX idx_messages_conversation ON messages(conversation_id, created_at DESC);
 CREATE INDEX idx_messages_conversation_created ON messages(conversation_id, created_at);
-
--------------------------------------------------------------------------------
-
-CREATE TABLE message_reads (
-    message_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    read_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (message_id, user_id),
-    CONSTRAINT message_reads_fk_user_id FOREIGN KEY (user_id) REFERENCES users(user_id),
-    CONSTRAINT message_reads_fk_message_id FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
-);
 
 -------------------------------------------------------------------------------
 
@@ -286,205 +276,144 @@ CREATE TABLE follows_3 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDE
 CREATE INDEX idx_follower ON follows(follower_id);
 
 -------------------------------------------------------------------------------
+-----------------------------FUNCTIONS AND TRIGGERS----------------------------
+-------------------------------------------------------------------------------
 
--- FUNCTIONS AND TRIGGERS
+CREATE OR REPLACE FUNCTION get_post_metrics(target_post_id INT)
+RETURNS JSONB AS $$
+WITH base_metrics AS (
+    SELECT COALESCE(
+        jsonb_object_agg(m::text, COALESCE(pm.counter, 0)),
+        '{}'::jsonb
+    ) AS metrics
+    FROM unnest(enum_range(NULL::metric_type)) AS m
+    LEFT JOIN post_metrics pm 
+        ON pm.post_id = target_post_id 
+       AND pm.type = m
+)
+SELECT metrics || jsonb_build_object(
+    'comments', (SELECT COUNT(*) FROM comments WHERE post_id = target_post_id),
+    'likes',    (SELECT COUNT(*) FROM post_likes WHERE post_id = target_post_id)
+)
+FROM base_metrics;
+$$ LANGUAGE sql STABLE;
 
--- Atualiza o campo path
-CREATE OR REPLACE FUNCTION set_comment_path()
+-------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION get_comment_metrics(target_comment_id INT)
+RETURNS JSONB AS $$
+WITH base_metrics AS (
+    SELECT COALESCE(
+        jsonb_object_agg(m::text, COALESCE(cm.counter, 0)),
+        '{}'::jsonb
+    ) AS metrics
+    FROM unnest(enum_range(NULL::metric_type)) AS m
+    LEFT JOIN comment_metrics cm 
+        ON cm.comment_id = target_comment_id 
+       AND cm.type = m
+)
+SELECT metrics || jsonb_build_object(
+    'comments', (SELECT COUNT(*) FROM comments WHERE parent_comment_id = target_comment_id),
+    'likes',    (SELECT COUNT(*) FROM comment_likes WHERE comment_id = target_comment_id)
+)
+FROM base_metrics;
+$$ LANGUAGE sql STABLE;
+
+-------------------------------------------------------------------------------
+
+-- Atualiza o campo path da tabela comments (hierarquia de comentários)
+CREATE OR REPLACE FUNCTION update_comment_path()
 RETURNS TRIGGER AS $$
-DECLARE
-    parent_path LTREE;
 BEGIN
-    -- Verifica se o comment_id já foi atribuído pelo mecanismo SERIAL.
-    IF NEW.comment_id IS NULL THEN
-        RAISE EXCEPTION 'comment_id não foi atribuído. Verifique a configuração do SERIAL.';
-    END IF;
-    
-    -- Se não houver comentário pai, define o path como o próprio comment_id convertido para LTREE.
+    -- If it's a top-level comment (no parent)
     IF NEW.parent_comment_id IS NULL THEN
-        NEW.path := NEW.comment_id::text::ltree;
+        NEW.path = NEW.comment_id::text::ltree;
     ELSE
-        -- Recupera o path do comentário pai
-        SELECT path INTO parent_path FROM comments WHERE comment_id = NEW.parent_comment_id;
-        IF parent_path IS NULL THEN
-            RAISE EXCEPTION 'O comentário pai com id % não foi encontrado ou não possui path definido.', NEW.parent_comment_id;
+        -- Get the parent's path and append the new comment's ID
+        SELECT path || NEW.comment_id::text
+        INTO NEW.path
+        FROM comments
+        WHERE comment_id = NEW.parent_comment_id;
+
+        -- Check if parent_comment_id exists (important for data integrity, avoiding trigger failure)
+        IF NOT FOUND THEN
+          RAISE EXCEPTION 'Parent comment with ID % not found', NEW.parent_comment_id;
         END IF;
-        -- Concatena o path do pai com o comment_id do novo comentário
-        NEW.path := parent_path || NEW.comment_id::text::ltree;
     END IF;
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trigger_set_comment_path
+CREATE TRIGGER update_comment_path_trigger
 BEFORE INSERT ON comments
 FOR EACH ROW
-EXECUTE FUNCTION set_comment_path();
+EXECUTE FUNCTION update_comment_path();
 
 -------------------------------------------------------------------------------
+-- Retorna toda a hierarquia de comentários de um único comentário
 
--- Retornar um comentário pai e todos seus comentários filhos diretos ou indiretos
--- de forma recursiva
-CREATE OR REPLACE FUNCTION get_comment_thread(parent_id INT)
-RETURNS JSONB
-LANGUAGE plpgsql STABLE AS $$
+CREATE OR REPLACE FUNCTION get_comment_children(p_parent_id INTEGER)
+RETURNS JSON AS $$
 DECLARE
-    parent_path LTREE;
-    result JSONB;
+    children JSON;
 BEGIN
-
-    SELECT path INTO parent_path FROM comments WHERE comment_id = parent_id;
-    IF parent_path IS NULL THEN
-        RETURN NULL;
-    END IF;
-    
-    WITH RECURSIVE comment_tree AS (
-        SELECT 
-            c.comment_id,
-            c.content,
-            c.user_id,
-            c.post_id,
-            c.parent_comment_id,
-            c.created_at,
-            c.updated_at,
-            c.path,
-            jsonb_build_object(
+    SELECT COALESCE(
+        json_agg(
+            json_build_object(
                 'comment_id', c.comment_id,
-                'content', c.content,
                 'user_id', c.user_id,
-                'post_id', c.post_id,
-                'parent_comment_id', c.parent_comment_id,
-                'created_at', c.created_at,
-                'updated_at', c.updated_at,
-                'thread', '[]'::JSONB
-            ) AS thread
-        FROM 
-            comments c
-        WHERE 
-            c.path = parent_path  -- Comentário raiz
-
-        UNION ALL
-
-        SELECT 
-            c.comment_id,
-            c.content,
-            c.user_id,
-            c.post_id,
-            c.parent_comment_id,
-            c.created_at,
-            c.updated_at,
-            c.path,
-            jsonb_build_object(
-                'comment_id', c.comment_id,
                 'content', c.content,
-                'user_id', c.user_id,
-                'post_id', c.post_id,
-                'parent_comment_id', c.parent_comment_id,
-                'created_at', c.created_at,
-                'updated_at', c.updated_at,
-                'thread', '[]'::JSONB
+                'created_at', TO_CHAR(c.created_at, 'YYYY-MM-DD HH24:MI:SS'),
+                'updated_at', TO_CHAR(c.updated_at, 'YYYY-MM-DD HH24:MI:SS'),
+                'metrics', get_comment_metrics(c.comment_id),
+                'replies', get_comment_children(c.comment_id)
             )
-        FROM 
-            comments c
-        JOIN 
-            comment_tree ct ON 
-            c.parent_comment_id = ct.comment_id
+        ),
+        '[]'::json
     )
-    
-    SELECT 
-        jsonb_agg(thread) 
-    INTO 
-        result
-    FROM 
-        comment_tree
-    WHERE 
-        path = parent_path;
+    INTO children
+    FROM comments c
+    WHERE c.parent_comment_id = p_parent_id;
+
+    RETURN children;
+END;
+$$ LANGUAGE plpgsql;
+
+-------------------------------------------------------------------------------
+-- Retorna todos os comentários de um post
+
+CREATE OR REPLACE FUNCTION get_post_comments(p_post_id INTEGER)
+RETURNS JSON AS $$
+DECLARE
+    result JSON;
+BEGIN
+    SELECT COALESCE(
+        json_agg(
+            json_build_object(
+                'comment_id', c.comment_id,
+                'user_id', c.user_id,
+                'content', c.content,
+                'created_at', TO_CHAR(c.created_at, 'YYYY-MM-DD HH24:MI:SS'),
+                'updated_at', TO_CHAR(c.updated_at, 'YYYY-MM-DD HH24:MI:SS'),
+                'metrics', get_comment_metrics(c.comment_id),
+                'replies', get_comment_children(c.comment_id)
+            )
+        ),
+        '[]'::json
+    )
+    INTO result
+    FROM comments c
+    WHERE c.post_id = p_post_id
+      AND c.parent_comment_id IS NULL;
 
     RETURN result;
 END;
-$$;
+$$ LANGUAGE plpgsql;
 
 -------------------------------------------------------------------------------
-
--- Retornar todos os comentários relacionados a certo post
-CREATE OR REPLACE FUNCTION get_post_comments(target_post_id INT)
-RETURNS JSONB
-LANGUAGE plpgsql STABLE AS $$
-DECLARE
-    result JSONB;
-BEGIN
-    WITH RECURSIVE comment_tree AS (
-        -- Comentários raiz
-        SELECT 
-            c.comment_id,
-            c.content,
-            c.user_id,
-            c.post_id,
-            c.parent_comment_id,
-            c.created_at,
-            c.updated_at,
-            c.path,
-            jsonb_build_object(
-                'comment_id', c.comment_id,
-                'content', c.content,
-                'user_id', c.user_id,
-                'post_id', c.post_id,
-                'parent_comment_id', c.parent_comment_id,
-                'created_at', c.created_at,
-                'updated_at', c.updated_at,
-                'thread', '[]'::JSONB
-            ) AS thread
-        FROM 
-            comments c
-        WHERE 
-            c.post_id = target_post_id AND 
-            c.parent_comment_id IS NULL  -- Filtra apenas comentários raiz
-
-        UNION ALL
-        -- Comentários filhos
-        SELECT 
-            c.comment_id,
-            c.content,
-            c.user_id,
-            c.post_id,
-            c.parent_comment_id,
-            c.created_at,
-            c.updated_at,
-            c.path,
-            jsonb_build_object(
-                'comment_id', c.comment_id,
-                'content', c.content,
-                'user_id', c.user_id,
-                'post_id', c.post_id,
-                'parent_comment_id', c.parent_comment_id,
-                'created_at', c.created_at,
-                'updated_at', c.updated_at,
-                'thread', '[]'::JSONB
-            )
-        FROM 
-            comments c
-        JOIN 
-            comment_tree ct ON 
-            c.parent_comment_id = ct.comment_id
-    )
-
-    SELECT 
-        jsonb_agg(thread) 
-    INTO 
-        result
-    FROM 
-        comment_tree
-    WHERE 
-        parent_comment_id IS NULL;
-
-    RETURN result;
-END;
-$$;
-
--------------------------------------------------------------------------------
-
 -- Garante que o comentário filho pertence ao mesmo post que o comentário pai
+
 CREATE OR REPLACE FUNCTION ensure_same_post() RETURNS TRIGGER AS $$
 BEGIN    
     IF (SELECT post_id FROM comments WHERE comment_id = NEW.parent_comment_id) <> NEW.post_id THEN
@@ -502,9 +431,9 @@ WHEN (NEW.parent_comment_id IS NOT NULL)
 EXECUTE FUNCTION ensure_same_post();
 
 -------------------------------------------------------------------------------
-
 -- Manter histórico de posts vistos por cada usuário menor que 40
--- Executada todos os dias as 3:00 de manhã via cron
+-- Deve ser executada todos os dias as 3:00 de manhã via cron
+
 CREATE OR REPLACE FUNCTION prune_viewed_posts()
 RETURNS VOID AS $$
 BEGIN
@@ -527,6 +456,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -------------------------------------------------------------------------------
+-- Retorna as hashtags mais usadas em um periodo de tempo (em dias)
 
 CREATE OR REPLACE FUNCTION get_hashtags_usage(num_days INTEGER)
 RETURNS TABLE (
@@ -554,45 +484,135 @@ END;
 $$ LANGUAGE plpgsql;
 
 -------------------------------------------------------------------------------
+-- Garante a consistência da tabela comment_likes
 
---Post Metrics
-CREATE OR REPLACE FUNCTION get_post_metrics(target_post_id INT)
-RETURNS JSONB AS $$
-WITH base_metrics AS (
-    SELECT COALESCE(
-        jsonb_object_agg(m::text, COALESCE(pm.counter, 0)),
-        '{}'::jsonb
-    ) AS metrics
-    FROM unnest(enum_range(NULL::metric_type)) AS m
-    LEFT JOIN post_metrics pm 
-        ON pm.post_id = target_post_id 
-       AND pm.type = m
-)
-SELECT metrics || jsonb_build_object(
-    'comments', (SELECT COUNT(*) FROM comments WHERE post_id = target_post_id),
-    'likes',    (SELECT COUNT(*) FROM post_likes WHERE post_id = target_post_id)
-)
-FROM base_metrics;
-$$ LANGUAGE sql STABLE;
+CREATE OR REPLACE FUNCTION validate_comment_likes()
+RETURNS TRIGGER AS $$
+DECLARE
+    comment_post_id INTEGER;
+BEGIN
+    -- Recupera o post_id do comentário referenciado
+    SELECT post_id 
+      INTO comment_post_id 
+      FROM comments 
+     WHERE comment_id = NEW.comment_id;
+
+    -- Verifica se o comentário existe; caso não exista, gera uma exceção
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'O comentário com ID % não existe.', NEW.comment_id;
+    END IF;
+
+    -- Verifica se o post_id do comentário é igual ao post_id da linha em comment_likes
+    IF comment_post_id <> NEW.post_id THEN
+        RAISE EXCEPTION 'O comentário com ID % não pertence ao post com ID %.', NEW.comment_id, NEW.post_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_validate_comment_likes
+BEFORE INSERT OR UPDATE ON comment_likes
+FOR EACH ROW
+EXECUTE FUNCTION validate_comment_likes();
+
+-------------------------------------------------------------------------------
+-- Não permite que um usuário mande uma mensagem caso esteja bloqueado pelo outro usuário
+
+CREATE OR REPLACE FUNCTION validate_message_sender()
+RETURNS TRIGGER AS $$
+DECLARE
+    conv_record RECORD;
+    recipient_id INTEGER;
+    is_blocked BOOLEAN;
+BEGIN
+    -- Retrieve the conversation details
+    SELECT user1_id, user2_id
+      INTO conv_record
+      FROM direct_conversations
+     WHERE conversation_id = NEW.conversation_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Conversation with ID % does not exist.', NEW.conversation_id;
+    END IF;
+
+    -- Determine the recipient (the other participant)
+    IF NEW.sender_id = conv_record.user1_id THEN
+        recipient_id := conv_record.user2_id;
+    ELSIF NEW.sender_id = conv_record.user2_id THEN
+        recipient_id := conv_record.user1_id;
+    ELSE
+        RAISE EXCEPTION 'Sender ID % is not a participant in conversation %.', NEW.sender_id, NEW.conversation_id;
+    END IF;
+
+    -- Check if the recipient has blocked the sender
+    SELECT EXISTS (
+        SELECT 1 
+          FROM blocks 
+         WHERE blocker_id = recipient_id 
+           AND blocked_id = NEW.sender_id
+    )
+      INTO is_blocked;
+
+    IF is_blocked THEN
+        RAISE EXCEPTION 'Message cannot be created because the sender (ID: %) is blocked by the recipient (ID: %).', NEW.sender_id, recipient_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_validate_message_sender
+BEFORE INSERT ON messages
+FOR EACH ROW
+EXECUTE FUNCTION validate_message_sender();
+
+-------------------------------------------------------------------------------
+-- Função que valida se o usuário a ser seguido bloqueou o seguidor
+
+CREATE OR REPLACE FUNCTION validate_follow_block()
+RETURNS TRIGGER AS $$
+DECLARE
+    is_blocked BOOLEAN;
+BEGIN
+    -- Verifica se existe um registro na tabela blocks em que o followed_id bloqueou o follower_id
+    SELECT EXISTS (
+        SELECT 1 
+        FROM blocks 
+        WHERE blocker_id = NEW.followed_id
+          AND blocked_id = NEW.follower_id
+    )
+    INTO is_blocked;
+    
+    IF is_blocked THEN
+        RAISE EXCEPTION 'A conta com ID % bloqueou o usuário com ID %. A operação de seguir não pode ser realizada.', NEW.followed_id, NEW.follower_id;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger que chama a função validate_follow_block antes de inserir ou atualizar um registro na tabela follows
+CREATE TRIGGER trg_validate_follow_block
+BEFORE INSERT OR UPDATE ON follows
+FOR EACH ROW
+EXECUTE FUNCTION validate_follow_block();
 
 -------------------------------------------------------------------------------
 
--- Comment Metrics
-CREATE OR REPLACE FUNCTION get_comment_metrics(target_comment_id INT)
-RETURNS JSONB AS $$
-WITH base_metrics AS (
-    SELECT COALESCE(
-        jsonb_object_agg(m::text, COALESCE(cm.counter, 0)),
-        '{}'::jsonb
-    ) AS metrics
-    FROM unnest(enum_range(NULL::metric_type)) AS m
-    LEFT JOIN comment_metrics cm 
-        ON cm.comment_id = target_comment_id 
-       AND cm.type = m
-)
-SELECT metrics || jsonb_build_object(
-    'comments', (SELECT COUNT(*) FROM comments WHERE parent_comment_id = target_comment_id),
-    'likes',    (SELECT COUNT(*) FROM comment_likes WHERE comment_id = target_comment_id)
-)
-FROM base_metrics;
-$$ LANGUAGE sql STABLE;
+CREATE OR REPLACE FUNCTION unfollow_on_block()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Remove quaisquer relações de follow existentes entre o blocker e o blocked
+    DELETE FROM follows
+    WHERE (follower_id = NEW.blocker_id AND followed_id = NEW.blocked_id)
+       OR (follower_id = NEW.blocked_id AND followed_id = NEW.blocker_id);
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_unfollow_on_block
+AFTER INSERT ON blocks
+FOR EACH ROW
+EXECUTE FUNCTION unfollow_on_block();

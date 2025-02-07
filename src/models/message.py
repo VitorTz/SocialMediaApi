@@ -4,10 +4,12 @@ from typing import Optional
 
 class Message(BaseModel):
 
+    message_id: Optional[int] = None
     conversation_id: int
     sender_id: int
     content: str
-    reply_to_id: Optional[int] = None
+    is_read: Optional[bool] = False
+    reply_to_message_id: Optional[int] = None
 
 
 class MessageUnique(BaseModel):
@@ -15,9 +17,12 @@ class MessageUnique(BaseModel):
     message_id: int
 
 
-class MessageUpdate(BaseModel):
+class MessageReadAll(BaseModel):
 
-    message_id: int
+    user_id_reading: int
     conversation_id: int
-    sender_id: int
-    content: Optional[str]    
+
+
+class MessageCollection(BaseModel):
+
+    messages_ids: list[int]

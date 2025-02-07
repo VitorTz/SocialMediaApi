@@ -14,22 +14,22 @@ metrics_router = APIRouter()
 ############################ POSTS ############################
 ##################################################################
 
-@metrics_router.get("/metrics/post", response_model=Metrics)
+@metrics_router.get("/metrics/posts", response_model=Metrics)
 def get_post_metrics(post: PostUnique) -> JSONResponse:    
     return database.db_read_fetchone(
         """
             SELECT 
-                get_post_metrics_json(%s)
+                get_post_metrics(%s)
             AS metrics;
         """,
-        (str(post.post_id), )
-    ).to_json_response()
+        (post.post_id, )
+    ).response_with_content()
 
 
 ############################ COMMENTS ############################
 ##################################################################
 
-@metrics_router.get("/metrics/comment", response_model=Metrics)
+@metrics_router.get("/metrics/comments", response_model=Metrics)
 def get_comment_metrics(comment: CommentUnique) -> JSONResponse:    
     return database.db_read_fetchone(
         """
@@ -38,7 +38,7 @@ def get_comment_metrics(comment: CommentUnique) -> JSONResponse:
             AS metrics;
         """,
         (str(comment.comment_id), )
-    ).to_json_response()
+    ).response_with_content()
 
 
 ############################ HASHTAGS ############################
@@ -65,7 +65,7 @@ def get_hashtags_used_by_user(user: UserUnique) -> JSONResponse:
                 counter DESC;
         """,
         (str(user.user_id), )
-    ).to_json_response()
+    ).response_with_content()
 
 
 @metrics_router.get("/metrics/trending/hashtags", response_model=List[Hashtag])
@@ -74,7 +74,9 @@ def get_most_used_hashtags(
 ):
     return database.db_read_fetchall(
         """
-           SELECT get_hashtags_usage(%s);
+            SELECT 
+                get_hashtags_usage(%s)
+            AS hashtags;
         """,
         (day_interval, )
-    ).to_json_response()
+    ).response_with_content()

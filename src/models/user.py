@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
+import datetime
 
 
 class User(BaseModel):
@@ -10,14 +11,13 @@ class User(BaseModel):
     full_name: str
     hashed_password: str
     bio: str
-    birthdate: str
+    birthdate: datetime.date
     is_verified: Optional[bool] = False
 
 
 class UserUnique(BaseModel):
 
-    user_id: Optional[int] = None
-    username: Optional[str] = None
+    user_id: Optional[int] = None    
 
 
 class UserUpdate(BaseModel):
@@ -28,5 +28,5 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     hashed_password: Optional[str] = None   
     bio: Optional[str] = None
-    birthdate: Optional[str] = None
+    birthdate: Optional[datetime.date] = None
     is_verified: Optional[bool] = None
