@@ -28,7 +28,7 @@ def read_parent_comments_from_post(post: PostUnique):
                 parent_comment_id is NULL;
         """,
         (str(post.post_id), )
-    ).response_with_content()
+    ).json_response()
 
     
 @comments_router.get("/comments/comment", response_model=Comment)
@@ -43,7 +43,7 @@ def read_comment(comment: CommentUnique):
         (str(comment.comment_id), )
     )
     r.content = r.content['comments']
-    return r.response_with_content()
+    return r.json_response()
 
 
 

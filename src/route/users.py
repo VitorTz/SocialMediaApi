@@ -24,7 +24,7 @@ def read_all_users():
         FROM 
             users;        
         """
-    ).response_with_content()
+    ).json_response()
 
 
 @users_router.get("/users", response_model=User)
@@ -46,7 +46,7 @@ def read_user(user: UserUnique) -> JSONResponse:
         WHERE 
             user_id = %s;
         """, (str(user.user_id), )
-    ).response_with_content()
+    ).json_response()
 
 
 @users_router.post("/users")
@@ -159,4 +159,4 @@ def get_user_viewed_posts(
             OFFSET %s;
         """,
         (str(user.user_id), limit, offset)
-    ).response_with_content()
+    ).json_response()

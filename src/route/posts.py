@@ -28,7 +28,7 @@ def read_all_posts():
             FROM 
                 posts p;            
         """        
-    ).response_with_content()
+    ).json_response()
 
 
 @posts_router.get("/posts", response_model=Post)
@@ -53,7 +53,7 @@ def read_post(post: PostUnique) -> JSONResponse:
                 p.post_id = %s;
         """,
         (str(post.post_id), )
-    ).response_with_content()
+    ).json_response()
 
 
 
@@ -85,7 +85,7 @@ def read_user_posts(
             OFFSET %s;
         """,
         (str(user.user_id), limit, offset)
-    ).response_with_content()
+    ).json_response()
 
 
 @posts_router.get("/posts/user/following/posts", response_model=PostCollection)
@@ -122,7 +122,7 @@ def read_user_home_page(
             OFFSET %s;
         """,
         (str(user.user_id), days, limit, offset)
-    ).response_with_content()
+    ).json_response()
 
 
 @posts_router.post("/posts")
@@ -144,9 +144,9 @@ def create_post(post: Post) -> Response:
         """, 
         (
             str(post.user_id),
-            post.title,
-            post.content,
-            post.language,
+            post.title.strip(),
+            post.content.strip(),
+            post.language.strip(),
             post.status,
             post.is_pinned
         )
@@ -154,7 +154,11 @@ def create_post(post: Post) -> Response:
     if r.status_code != status.HTTP_201_CREATED:
         return r.response()
     
-    database.db_register_post_hashtags(post.content, r.content['post_id'])
+    database.db_register_post_hashtags(
+        post.user_id,
+        post.content, 
+        r.content['post_id']
+    )
 
     return r.response()
 
@@ -172,7 +176,8 @@ def update_post(post: PostUpdate) -> Response:
                 is_pinned = COALESCE(%s, is_pinned),
                 updated_at = CURRENT_TIMESTAMP
             WHERE 
-                post_id = %s 
+                post_id = %s AND
+                user_id = %s
             RETURNING 
                 post_id;
         """, 
@@ -181,14 +186,19 @@ def update_post(post: PostUpdate) -> Response:
             post.content,            
             post.status,
             post.is_pinned,
-            str(post.post_id)
+            str(post.post_id),
+            str(post.user_id)
         )
     )
 
     if r.status_code != status.HTTP_201_CREATED:
         return r.response()
     
-    database.db_register_post_hashtags(post.content, r.content['post_id'])
+    database.db_register_post_hashtags(
+        post.user_id,
+        post.content, 
+        r.content['post_id']
+    )
 
     return r.response()
 

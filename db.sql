@@ -1,7 +1,13 @@
+-------------------------------------------------------------------------------
+--------------------------------EXTENSIONS-------------------------------------
+-------------------------------------------------------------------------------
+
 CREATE EXTENSION IF NOT EXISTS ltree;
 CREATE EXTENSION IF NOT EXISTS citext;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
+-------------------------------------------------------------------------------
+-----------------------------------TABLES--------------------------------------
 -------------------------------------------------------------------------------
 
 CREATE TABLE users (
@@ -10,7 +16,7 @@ CREATE TABLE users (
     email CITEXT UNIQUE NOT NULL,
     full_name VARCHAR (64) NOT NULL,
     hashed_password CHAR(60) NOT NULL,
-    bio TEXT,
+    bio TEXT DEFAULT "",    
     birthdate DATE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -21,6 +27,21 @@ CREATE TABLE users (
     CONSTRAINT users_chk_user_email_format CHECK (email ~* '^[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+)*@(?:(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,})$')
 );
 
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+CREATE TABLE users_profile_photos (
+    user_id INTEGER PRIMARY KEY NOT NULL,
+    profile_photo TEXT,
+    cover_image TEXT,
+    CONSTRAINT fk_user_profile_photos_user_id FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) PARTITION BY HASH (post_id);
+CREATE TABLE users_profile_photos_0 PARTITION OF users_profile_photos FOR VALUES WITH (MODULUS 4, REMAINDER 0);
+CREATE TABLE users_profile_photos_1 PARTITION OF users_profile_photos FOR VALUES WITH (MODULUS 4, REMAINDER 1);
+CREATE TABLE users_profile_photos_2 PARTITION OF users_profile_photos FOR VALUES WITH (MODULUS 4, REMAINDER 2);
+CREATE TABLE users_profile_photos_3 PARTITION OF users_profile_photos FOR VALUES WITH (MODULUS 4, REMAINDER 3);
+
+-------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
 CREATE TABLE languages (
@@ -39,6 +60,7 @@ VALUES
     ('ja', 'Japanese', '日本語');
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 CREATE TYPE 
     post_status_type
@@ -48,6 +70,7 @@ AS ENUM  (
     'archived'
 );
 
+-------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
 CREATE TABLE posts (
@@ -74,6 +97,23 @@ CREATE INDEX idx_posts_updated_at ON posts(updated_at);
 CREATE INDEX idx_posts_user_status ON posts(user_id, status);
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+CREATE TABLE post_images (    
+    post_id INTEGER NOT NULL,
+    image_url TEXT NOT NULL,
+    position INTEGER DEFAULT 0,
+    PRIMARY KEY (post_id, image_url, position),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT post_images_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE
+) PARTITION BY HASH (post_id);
+CREATE TABLE post_images_0 PARTITION OF post_images FOR VALUES WITH (MODULUS 4, REMAINDER 0);
+CREATE TABLE post_images_1 PARTITION OF post_images FOR VALUES WITH (MODULUS 4, REMAINDER 1);
+CREATE TABLE post_images_2 PARTITION OF post_images FOR VALUES WITH (MODULUS 4, REMAINDER 2);
+CREATE TABLE post_images_3 PARTITION OF post_images FOR VALUES WITH (MODULUS 4, REMAINDER 3);
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 CREATE TABLE post_likes (
     post_id INTEGER NOT NULL,
@@ -90,6 +130,7 @@ CREATE TABLE post_likes_2 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, RE
 CREATE TABLE post_likes_3 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 CREATE TABLE user_viewed_posts (
     user_id INTEGER NOT NULL,
@@ -105,6 +146,7 @@ CREATE TABLE user_viewed_posts_2 PARTITION OF user_viewed_posts FOR VALUES WITH 
 CREATE TABLE user_viewed_posts_3 PARTITION OF user_viewed_posts FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 CREATE INDEX idx_user_viewed_posts ON user_viewed_posts(user_id, viewed_at DESC);
 
+-------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
 CREATE TABLE comments (
@@ -124,6 +166,8 @@ CREATE INDEX idx_comments ON comments (post_id);
 CREATE INDEX idx_comments_parent ON comments (parent_comment_id);
 CREATE INDEX idx_comments_path ON comments USING GIST (path);
 CREATE INDEX idx_comments_order ON comments (post_id, created_at);
+
+-------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
 CREATE TABLE comment_likes (
@@ -141,6 +185,7 @@ CREATE TABLE comment_likes_2 PARTITION OF comment_likes FOR VALUES WITH (MODULUS
 CREATE TABLE comment_likes_3 PARTITION OF comment_likes FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 CREATE INDEX idx_comment_likes ON comment_likes (post_id);
 
+-------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
 CREATE TABLE hashtags (
@@ -165,12 +210,14 @@ CREATE TABLE post_hashtags_2 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS
 CREATE TABLE post_hashtags_3 PARTITION OF post_hashtags FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 CREATE TYPE metric_type AS ENUM (
     'impressions', 
     'views'    
 );
 
+-------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
 CREATE TABLE post_metrics (
@@ -187,6 +234,7 @@ ALTER TABLE post_metrics_impressions SET (fillfactor = 80);
 CREATE TABLE post_metrics_views PARTITION OF post_metrics FOR VALUES IN ('views');
 ALTER TABLE post_metrics_views SET (fillfactor = 80);
 
+-------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
 CREATE TABLE comment_metrics (
@@ -205,6 +253,7 @@ CREATE TABLE comment_metrics_views PARTITION OF comment_metrics FOR VALUES IN ('
 ALTER TABLE  comment_metrics_views  SET (fillfactor = 80);
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 CREATE TABLE direct_conversations (    
     conversation_id SERIAL PRIMARY KEY,
@@ -221,6 +270,7 @@ CREATE INDEX idx_direct_conversations_user1 ON direct_conversations(user1_id);
 CREATE INDEX idx_direct_conversations_user2 ON direct_conversations(user2_id);
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 CREATE TABLE messages (
     message_id SERIAL PRIMARY KEY,
@@ -228,7 +278,7 @@ CREATE TABLE messages (
     sender_id INTEGER NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    readed_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+    read_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_read BOOLEAN DEFAULT FALSE,
     is_edited BOOLEAN DEFAULT FALSE,
@@ -240,6 +290,7 @@ CREATE TABLE messages (
 CREATE INDEX idx_messages_conversation ON messages(conversation_id, created_at DESC);
 CREATE INDEX idx_messages_conversation_created ON messages(conversation_id, created_at);
 
+-------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
 CREATE TABLE blocks (
@@ -259,6 +310,7 @@ CREATE TABLE blocks_3 PARTITION OF blocks FOR VALUES WITH (MODULUS 4, REMAINDER 
 CREATE INDEX idx_blocks_blocker ON blocks (blocker_id);
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 CREATE TABLE follows (
     follower_id INTEGER NOT NULL, -- quem está seguindo
@@ -274,6 +326,7 @@ CREATE TABLE follows_1 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDE
 CREATE TABLE follows_2 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDER 2);
 CREATE TABLE follows_3 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 CREATE INDEX idx_follower ON follows(follower_id);
+
 
 -------------------------------------------------------------------------------
 -----------------------------FUNCTIONS AND TRIGGERS----------------------------
@@ -299,6 +352,7 @@ FROM base_metrics;
 $$ LANGUAGE sql STABLE;
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION get_comment_metrics(target_comment_id INT)
 RETURNS JSONB AS $$
@@ -320,8 +374,9 @@ FROM base_metrics;
 $$ LANGUAGE sql STABLE;
 
 -------------------------------------------------------------------------------
-
+-------------------------------------------------------------------------------
 -- Atualiza o campo path da tabela comments (hierarquia de comentários)
+
 CREATE OR REPLACE FUNCTION update_comment_path()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -350,6 +405,7 @@ BEFORE INSERT ON comments
 FOR EACH ROW
 EXECUTE FUNCTION update_comment_path();
 
+-------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 -- Retorna toda a hierarquia de comentários de um único comentário
 
@@ -381,7 +437,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 -------------------------------------------------------------------------------
--- Retorna todos os comentários de um post
+-------------------------------------------------------------------------------
+-- Retorna toda a hierarquia de comentários de uma postagem
 
 CREATE OR REPLACE FUNCTION get_post_comments(p_post_id INTEGER)
 RETURNS JSON AS $$
@@ -412,6 +469,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- Garante que o comentário filho pertence ao mesmo post que o comentário pai
 
 CREATE OR REPLACE FUNCTION ensure_same_post() RETURNS TRIGGER AS $$
@@ -431,8 +489,9 @@ WHEN (NEW.parent_comment_id IS NOT NULL)
 EXECUTE FUNCTION ensure_same_post();
 
 -------------------------------------------------------------------------------
--- Manter histórico de posts vistos por cada usuário menor que 40
--- Deve ser executada todos os dias as 3:00 de manhã via cron
+-------------------------------------------------------------------------------
+-- Mantem o histórico de posts vistos por cada usuário em até 40 posts
+-- Função para ser executada todos os dias as 3:00 de manhã via cron
 
 CREATE OR REPLACE FUNCTION prune_viewed_posts()
 RETURNS VOID AS $$
@@ -456,35 +515,10 @@ END;
 $$ LANGUAGE plpgsql;
 
 -------------------------------------------------------------------------------
--- Retorna as hashtags mais usadas em um periodo de tempo (em dias)
-
-CREATE OR REPLACE FUNCTION get_hashtags_usage(num_days INTEGER)
-RETURNS TABLE (
-    name CITEXT,
-    counter BIGINT
-) AS $$
-BEGIN
-    RETURN QUERY
-    SELECT
-        h.name,
-        COUNT(*) AS counter
-    FROM 
-        hashtags h
-    JOIN 
-        post_hashtags ph ON 
-        ph.hashtag_id = h.hashtag_id
-    WHERE 
-        ph.created_at >= CURRENT_TIMESTAMP - (num_days || ' days')::interval
-    GROUP BY 
-        h.name
-    ORDER BY 
-        counter 
-    DESC;
-END;
-$$ LANGUAGE plpgsql;
-
 -------------------------------------------------------------------------------
--- Garante a consistência da tabela comment_likes
+-- Verifica se o usuário está dando like em um comentário
+--  1. Que existe
+--  2. Que pertence a postagem correta
 
 CREATE OR REPLACE FUNCTION validate_comment_likes()
 RETURNS TRIGGER AS $$
@@ -517,16 +551,22 @@ FOR EACH ROW
 EXECUTE FUNCTION validate_comment_likes();
 
 -------------------------------------------------------------------------------
--- Não permite que um usuário mande uma mensagem caso esteja bloqueado pelo outro usuário
+-------------------------------------------------------------------------------
+-- Verifica se o usuário que está enviando a mensagem
+--  1. Está inserindo uma mensagem em uma conversa existente
+--  2. Está participando da conversa
+--  3. Está enviando uma mensagem para alguem que não o bloqueou
+--  4. Está respondendo (caso esteja respondendo) a uma mensagem válida dentro da conversa
 
-CREATE OR REPLACE FUNCTION validate_message_sender()
+CREATE OR REPLACE FUNCTION validate_message()
 RETURNS TRIGGER AS $$
 DECLARE
     conv_record RECORD;
     recipient_id INTEGER;
     is_blocked BOOLEAN;
+    reply_conv_id INTEGER;
 BEGIN
-    -- Retrieve the conversation details
+    -- Recupera os dados da conversa
     SELECT user1_id, user2_id
       INTO conv_record
       FROM direct_conversations
@@ -536,7 +576,7 @@ BEGIN
         RAISE EXCEPTION 'Conversation with ID % does not exist.', NEW.conversation_id;
     END IF;
 
-    -- Determine the recipient (the other participant)
+    -- Determina o destinatário (o outro participante)
     IF NEW.sender_id = conv_record.user1_id THEN
         recipient_id := conv_record.user2_id;
     ELSIF NEW.sender_id = conv_record.user2_id THEN
@@ -545,7 +585,7 @@ BEGIN
         RAISE EXCEPTION 'Sender ID % is not a participant in conversation %.', NEW.sender_id, NEW.conversation_id;
     END IF;
 
-    -- Check if the recipient has blocked the sender
+    -- Verifica se o destinatário bloqueou o remetente
     SELECT EXISTS (
         SELECT 1 
           FROM blocks 
@@ -557,18 +597,36 @@ BEGIN
     IF is_blocked THEN
         RAISE EXCEPTION 'Message cannot be created because the sender (ID: %) is blocked by the recipient (ID: %).', NEW.sender_id, recipient_id;
     END IF;
+    
+    -- Validação adicional: se reply_to_message_id estiver definido,
+    -- verifica se a mensagem referenciada existe e pertence à mesma conversa.
+    IF NEW.reply_to_message_id IS NOT NULL THEN
+        SELECT conversation_id 
+          INTO reply_conv_id
+          FROM messages 
+         WHERE message_id = NEW.reply_to_message_id;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Referenced reply message with ID % does not exist.', NEW.reply_to_message_id;
+        END IF;
+
+        IF reply_conv_id <> NEW.conversation_id THEN
+            RAISE EXCEPTION 'Reply message (ID: %) does not belong to conversation %.', NEW.reply_to_message_id, NEW.conversation_id;
+        END IF;
+    END IF;
 
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_validate_message_sender
+CREATE TRIGGER trg_validate_message
 BEFORE INSERT ON messages
 FOR EACH ROW
-EXECUTE FUNCTION validate_message_sender();
+EXECUTE FUNCTION validate_message();
 
 -------------------------------------------------------------------------------
--- Função que valida se o usuário a ser seguido bloqueou o seguidor
+-------------------------------------------------------------------------------
+-- Não permite que um usuário siga alguem caso esteja bloqueado
 
 CREATE OR REPLACE FUNCTION validate_follow_block()
 RETURNS TRIGGER AS $$
@@ -592,13 +650,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger que chama a função validate_follow_block antes de inserir ou atualizar um registro na tabela follows
 CREATE TRIGGER trg_validate_follow_block
 BEFORE INSERT OR UPDATE ON follows
 FOR EACH ROW
 EXECUTE FUNCTION validate_follow_block();
 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- Caso usuário A de block em um usuário B, os follows de A para B e da B para A são deletados
 
 CREATE OR REPLACE FUNCTION unfollow_on_block()
 RETURNS TRIGGER AS $$

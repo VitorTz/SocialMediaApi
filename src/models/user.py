@@ -12,6 +12,8 @@ class User(BaseModel):
     hashed_password: str
     bio: str
     birthdate: datetime.date
+    created_at: Optional[datetime.datetime] = None
+    updated_at: Optional[datetime.datetime] = None
     is_verified: Optional[bool] = False
 
 

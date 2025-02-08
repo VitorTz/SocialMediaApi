@@ -23,7 +23,7 @@ def count_followers(user: UserUnique) -> JSONResponse:
         (str(user.user_id), )
     )
     r.content = r.content['count']
-    return r.response_with_content()
+    return r.json_response()
 
 
 @follows_route.get("/follows/followers", response_model=List[Follower])
@@ -38,7 +38,7 @@ def read_followers(user: UserUnique) -> JSONResponse:
                 followed_id = %s;
         """,
         (str(user.user_id), )
-    ).response_with_content()        
+    ).json_response()        
     
 
 @follows_route.get("/follows/following/count", response_model=int)
@@ -55,7 +55,7 @@ def count_following(user: UserUnique) -> JSONResponse:
         (str(user.user_id), )
     )
     r.content = r.content['count']
-    return r.response_with_content()
+    return r.json_response()
 
 
 @follows_route.get("/follows/following", response_model=List[Followed])
@@ -71,7 +71,7 @@ def read_followings(user: UserUnique) -> JSONResponse:
         """,
         (str(user.user_id), )
     )    
-    return r.response_with_content()
+    return r.json_response()
 
 @follows_route.post("/follows")
 def create_follow(follow: Follow) -> Response:

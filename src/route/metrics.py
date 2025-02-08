@@ -23,7 +23,7 @@ def get_post_metrics(post: PostUnique) -> JSONResponse:
             AS metrics;
         """,
         (post.post_id, )
-    ).response_with_content()
+    ).json_response()
 
 
 ############################ COMMENTS ############################
@@ -38,7 +38,7 @@ def get_comment_metrics(comment: CommentUnique) -> JSONResponse:
             AS metrics;
         """,
         (str(comment.comment_id), )
-    ).response_with_content()
+    ).json_response()
 
 
 ############################ HASHTAGS ############################
@@ -65,7 +65,7 @@ def get_hashtags_used_by_user(user: UserUnique) -> JSONResponse:
                 counter DESC;
         """,
         (str(user.user_id), )
-    ).response_with_content()
+    ).json_response()
 
 
 @metrics_router.get("/metrics/trending/hashtags", response_model=List[Hashtag])
@@ -74,9 +74,21 @@ def get_most_used_hashtags(
 ):
     return database.db_read_fetchall(
         """
-            SELECT 
-                get_hashtags_usage(%s)
-            AS hashtags;
+            SELECT
+                h.name,
+                COUNT(*) AS counter
+            FROM 
+                hashtags h
+            JOIN 
+                post_hashtags ph ON 
+                ph.hashtag_id = h.hashtag_id
+            WHERE 
+                ph.created_at >= CURRENT_TIMESTAMP - (%s || ' days')::interval
+            GROUP BY 
+                h.name
+            ORDER BY 
+                counter
+            DESC;
         """,
-        (day_interval, )
-    ).response_with_content()
+        (str(day_interval), )
+    ).json_response()

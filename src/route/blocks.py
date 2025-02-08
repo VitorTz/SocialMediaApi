@@ -23,7 +23,7 @@ def read_blocked_by_user(user: UserUnique) -> JSONResponse:
                 blocker_id = %s;
         """,
         (str(user.user_id), )
-    ).response_with_content()
+    ).json_response()
 
 
 @blocks_router.post("/blocks")

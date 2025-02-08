@@ -34,7 +34,8 @@ class PostUnique(BaseModel):
 
 
 class PostUpdate(BaseModel):
-
+    
+    user_id: int
     post_id: int
     title: Optional[str] = None
     content: Optional[str] = None

@@ -21,7 +21,7 @@ def read_all_post_likes() -> JSONResponse:
             FROM 
                 post_likes;
         """
-    ).response_with_content()
+    ).json_response()
 
 
 @likes_router.get("/likes/posts", response_model=List[PostLike])
@@ -38,7 +38,7 @@ def read_post_likes(post: PostUnique) -> JSONResponse:
                 post_id = %s;
         """, 
         (str(post.post_id), )
-    ).response_with_content()
+    ).json_response()
 
 
 @likes_router.post("/likes/posts")
@@ -84,7 +84,7 @@ def read_all_comment_likes() -> JSONResponse:
             FROM 
                 comment_likes;
         """
-    ).response_with_content()
+    ).json_response()
 
 
 @likes_router.get("/likes/comments", response_model=List[CommentLike])
@@ -102,7 +102,7 @@ def read_likes_from_comment(comment: CommentUnique) -> JSONResponse:
             comment_id = %s;
         """,
         (str(comment.comment_id), )
-    ).response_with_content()
+    ).json_response()
 
 
 @likes_router.post("/likes/comments")

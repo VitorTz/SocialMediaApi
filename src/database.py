@@ -21,7 +21,7 @@ class DataBaseResponse:
     def response(self) -> Response:
         return Response(status_code=self.status_code)
     
-    def response_with_content(self) -> JSONResponse:
+    def json_response(self) -> JSONResponse:
         return JSONResponse(
             self.content,
             self.status_code
@@ -146,10 +146,9 @@ def db_update_many(query: str, params: tuple[str]) -> DataBaseResponse:
         with conn.cursor() as cur:
             cur.row_factory = dict_row
             try:
-                cur.execute(query, params)
-                r = cur.fetchone()
+                cur.execute(query, params)                
                 conn.commit()                
-                return DataBaseResponse(status.HTTP_201_CREATED, r)
+                return DataBaseResponse(status.HTTP_201_CREATED)
             except psycopg.errors.UniqueViolation as e:
                 print(e)
                 conn.rollback()
@@ -181,7 +180,7 @@ def db_delete(query: str, params: tuple[str]) -> DataBaseResponse:
                 return DataBaseResponse(status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-def db_register_post_hashtags(content: str, post_id: int) -> None:
+def db_register_post_hashtags(user_id: int, content: str, post_id: int) -> None:
     hashtags: list[str] = extract_hashtags(content)
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -202,12 +201,16 @@ def db_register_post_hashtags(content: str, post_id: int) -> None:
                 cur.execute(
                     """
                         INSERT INTO post_hashtags 
-                            (post_id, hashtag_id)
+                            (user_id, post_id, hashtag_id)
                         VALUES 
-                            (%s, (SELECT id FROM hashtags WHERE name = %s))
+                            (%s, %s, (SELECT hashtag_id FROM hashtags WHERE name = %s))
                         ON CONFLICT 
-                            (post_id, hashtag_id) 
+                            (user_id, post_id, hashtag_id) 
                         DO NOTHING;
                     """, 
-                    (str(post_id), tag)
+                    (
+                        str(user_id),
+                        str(post_id), 
+                        tag
+                    )
                 )
