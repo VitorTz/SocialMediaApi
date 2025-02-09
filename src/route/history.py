@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Query
 from src.models.post import Post
 from src.models.unique import UniqueID
+from src.models.search import SearchCreate, Search
 from typing import List, Optional
 from src import database
 
@@ -49,4 +50,49 @@ def read_user_post_view_history(
 
 @history_router.get("/history/user/search", response_model=List[str])
 def read_user_search_history(user: UniqueID):
-    pass
+    return database.db_read_all(
+        """
+            SELECT 
+                search_query, searched_at
+            FROM 
+                user_search_history
+            WHERE 
+                user_id = %s
+            ORDER 
+                BY searched_at 
+            DESC;
+        """,
+        (str(user.id), )
+    ).json_response()
+
+
+@history_router.post("/history/user/search")
+def register_user_search(search: SearchCreate):
+    return database.db_create(
+        """
+            INSERT INTO user_search_history (
+                user_id,
+                search_query
+            )
+            VALUES 
+                (%s, %s)
+            RETURNING
+                user_id
+        """,
+        (str(search.user_id), search.search_query)
+    ).response()
+
+
+@history_router.delete("/history/user/search")
+def delete_user_search(search: Search):
+    return database.db_delete(
+        """
+            DELETE FROM 
+                user_search_history
+            WHERE 
+                user_id = %s AND 
+                search_query = %s
+            RETURNING;
+        """,
+        (search.search_query, )
+    ).response()

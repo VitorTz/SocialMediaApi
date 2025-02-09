@@ -353,6 +353,19 @@ CREATE TABLE follows_2 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDE
 CREATE TABLE follows_3 PARTITION OF follows FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 CREATE INDEX idx_follower ON follows(follower_id);
 
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+CREATE TABLE user_search_history (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    search_query VARCHAR(256) NOT NULL,
+    searched_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user_search_history FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE    
+);
+-- Índice para otimizar consultas por usuário e ordenação cronológica decrescente
+CREATE INDEX idx_user_search_history_user_searched_at ON user_search_history (user_id, searched_at DESC);
+CREATE INDEX idx_user_search_history_query ON user_search_history(search_query);
 
 -------------------------------------------------------------------------------
 -----------------------------FUNCTIONS AND TRIGGERS----------------------------

@@ -49,11 +49,11 @@ def create_user_profile_image(token: str = Form(), file: UploadFile = File()):
             ON CONFLICT
                 (user_id)
             DO UPDATE SET
-                profile_image_id = %s
+                profile_image_id = EXCLUDED.profile_image_id
             RETURNING 
                 user_id
         """,
-        (str(token), image_id, image_id)
+        (str(token), image_id)
     ).response()
 
 
@@ -111,11 +111,11 @@ def create_user_cover_image(token: str = Form(), file: UploadFile = File()):
             ON CONFLICT
                 (user_id)
             DO UPDATE SET
-                cover_image_id = %s
+                cover_image_id = EXCLUDED.cover_image_id
             RETURNING 
                 user_id
         """,
-        (str(token), image_id, image_id)
+        (str(token), image_id)
     ).response()
 
 
@@ -176,7 +176,7 @@ def create_post_images(post_id: str = Form(), file: list[UploadFile] = File()):
                 ON CONFLICT
                     (post_id, position)
                 DO UPDATE SET
-                    image_id = %s
+                    image_id = EXCLUDED.image_id
                 RETURNING
                     post_id
             """,

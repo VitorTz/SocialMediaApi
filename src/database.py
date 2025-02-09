@@ -148,14 +148,11 @@ def db_delete(query: str, params: tuple[str] = None) -> DataBaseResponse:
         with conn.cursor() as cur:
             cur.row_factory = dict_row            
             try:
-                cur.execute(query, params)
-                r = cur.fetchone()
-                conn.commit()
-                if r is None:
-                    conn.rollback()
-                    return DataBaseResponse(status.HTTP_404_NOT_FOUND)
-                return DataBaseResponse(status.HTTP_204_NO_CONTENT, r)
+                cur.execute(query, params)                
+                conn.commit()                
+                return DataBaseResponse(status.HTTP_204_NO_CONTENT)
             except Exception as e:
                 print(f"[DATABASE EXCEPTION] -> [{e}]")
                 conn.rollback()
                 return DataBaseResponse(status.HTTP_500_INTERNAL_SERVER_ERROR)
+
