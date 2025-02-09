@@ -1,5 +1,6 @@
 from pydantic import BaseModel
-from typing import Optional
+from datetime import datetime
+from typing import Optional, List
 
 
 class Comment(BaseModel):
@@ -7,15 +8,18 @@ class Comment(BaseModel):
     user_id: int
     post_id: int
     content: str
+    created_at: datetime
+    updated_at: datetime
+    thread: List['Comment']
+    parent_comment_id: int | None
+
+
+class CommentCreate(BaseModel):
+
+    user_id: int
+    post_id: int
+    content: str
     parent_comment_id: Optional[int] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    thread: Optional[list['Comment']] = []
-
-
-class CommentUnique(BaseModel):
-
-    comment_id: int
 
 
 class CommentUpdate(BaseModel):

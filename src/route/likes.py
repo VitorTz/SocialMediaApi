@@ -1,33 +1,19 @@
 from fastapi import APIRouter, status, HTTPException
 from fastapi.responses import JSONResponse, Response
-from src.models.comment import CommentUnique
-from src.models.comment_like import CommentLike
-from src.models.post_like import PostLike
-from src.models.post import PostUnique
+from src.models.comment_like import CommentLike, CommentLikeCreate, CommentLikeUnique
+from src.models.post_like import PostLike, PostLikeUnique, PostLikeCreate
+from src.models.unique import UniqueID
 from typing import List
-from src.globals import globals_get_database
-from src.database import DataBaseResponse
+from src import database
 
 
 likes_router = APIRouter()
 
-@likes_router.get("/likes/all/posts", response_model=List[PostLike])
-def read_all_post_likes() -> JSONResponse:
-    return globals_get_database().read_all(
-        """
-            SELECT 
-                user_id, 
-                post_id,                    
-                TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at
-            FROM 
-                post_likes;
-        """
-    ).json_response()
 
 
 @likes_router.get("/likes/posts", response_model=List[PostLike])
-def read_post_likes(post: PostUnique) -> JSONResponse:
-    return globals_get_database().read_all(
+def read_post_likes(post: UniqueID) -> JSONResponse:
+    return database.db_read_all(
         """
             SELECT 
                 user_id, 
@@ -38,13 +24,13 @@ def read_post_likes(post: PostUnique) -> JSONResponse:
             WHERE 
                 post_id = %s;
         """, 
-        (str(post.post_id), )
+        (str(post.id), )
     ).json_response()
 
 
 @likes_router.post("/likes/posts")
-def create_post_like(post_like: PostLike) -> Response:
-    return globals_get_database().create(
+def create_post_like(post_like: PostLikeCreate) -> Response:
+    return database.db_create(
         """
             INSERT INTO post_likes 
                 (post_id, user_id)
@@ -58,8 +44,8 @@ def create_post_like(post_like: PostLike) -> Response:
 
 
 @likes_router.delete("/likes/posts")
-def delete_post_like(post_like: PostLike) -> Response:
-    return globals_get_database().delete(
+def delete_post_like(post_like: PostLikeUnique) -> Response:
+    return database.db_delete(
         """
             DELETE FROM 
                 post_likes
@@ -73,24 +59,9 @@ def delete_post_like(post_like: PostLike) -> Response:
     ).response()
 
 
-@likes_router.get("/likes/all/comments", response_model=List[CommentLike])
-def read_all_comment_likes() -> JSONResponse:
-    return globals_get_database().read_all(
-        """
-            SELECT 
-                user_id, 
-                post_id,
-                comment_id,                    
-                TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at
-            FROM 
-                comment_likes;
-        """
-    ).json_response()
-
-
 @likes_router.get("/likes/comments", response_model=List[CommentLike])
-def read_likes_from_comment(comment: CommentUnique) -> JSONResponse:
-    return globals_get_database().read_all(
+def read_likes_from_comment(comment: UniqueID) -> JSONResponse:
+    return database.db_read_all(
         """ 
         SELECT 
             comment_id, 
@@ -102,13 +73,13 @@ def read_likes_from_comment(comment: CommentUnique) -> JSONResponse:
         WHERE 
             comment_id = %s;
         """,
-        (str(comment.comment_id), )
+        (str(comment.id), )
     ).json_response()
 
 
 @likes_router.post("/likes/comments")
-def create_comment_like(comment_like: CommentLike) -> Response:
-    return globals_get_database().create(
+def create_comment_like(comment_like: CommentLikeCreate) -> Response:
+    return database.db_create(
         """
             INSERT INTO comment_likes 
                 (user_id, post_id, comment_id)
@@ -126,8 +97,8 @@ def create_comment_like(comment_like: CommentLike) -> Response:
 
 
 @likes_router.delete("/likes/comments", status_code=status.HTTP_204_NO_CONTENT)
-def delete_comment_like(comment_like: CommentLike) -> Response:
-    return globals_get_database().delete(
+def delete_comment_like(comment_like: CommentLikeUnique) -> Response:
+    return database.db_delete(
         """
             DELETE FROM 
                 comment_likes

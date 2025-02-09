@@ -34,7 +34,8 @@ CREATE INDEX idx_users_username_trgm ON users USING GIN (username gin_trgm_ops);
 CREATE TABLE images (
     image_id BIGSERIAL PRIMARY KEY NOT NULL,
     image_url TEXT NOT NULL,
-    public_id TEXT NOT NULL
+    public_id TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) PARTITION BY HASH (image_id);
 CREATE TABLE images_0 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 0);
 CREATE TABLE images_1 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 1);
@@ -51,7 +52,8 @@ CREATE TABLE images_7 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 
 CREATE TABLE users_profile_images (
     user_id INTEGER PRIMARY KEY NOT NULL,
     profile_image_id BIGINT DEFAULT NULL,
-    cover_image_id BIGINT DEFAULT NULL, 
+    cover_image_id BIGINT DEFAULT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_user_profile_photos_user_id FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     CONSTRAINT fk_user_profile_photos_profile_image_id FOREIGN KEY (profile_image_id) REFERENCES images(image_id) ON DELETE SET DEFAULT,
     CONSTRAINT fk_user_profile_photos_cover_image_id FOREIGN KEY (cover_image_id) REFERENCES images(image_id) ON DELETE SET DEFAULT
@@ -122,7 +124,8 @@ CREATE TABLE post_images (
     post_id INTEGER NOT NULL,
     image_id BIGINT NOT NULL,
     position INTEGER DEFAULT 0,
-    PRIMARY KEY (post_id, position),    
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (post_id, position),
     CONSTRAINT post_images_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE,
     CONSTRAINT post_images_fk_image FOREIGN KEY (image_id) REFERENCES images (image_id) ON DELETE CASCADE
 ) PARTITION BY HASH (post_id);
@@ -137,8 +140,7 @@ CREATE TABLE post_images_3 PARTITION OF post_images FOR VALUES WITH (MODULUS 4, 
 CREATE TABLE post_likes (
     post_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,    
     PRIMARY KEY (post_id, user_id),
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE
@@ -172,10 +174,10 @@ CREATE INDEX idx_user_viewed_posts ON user_viewed_posts(user_id, viewed_at DESC)
 CREATE TABLE comments (
     comment_id SERIAL PRIMARY KEY NOT NULL,
     user_id INTEGER NOT NULL,
-    post_id INTEGER NOT NULL,    
+    post_id INTEGER NOT NULL,
     content TEXT,
     parent_comment_id INTEGER,
-    path LTREE,    
+    path LTREE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,    
     CONSTRAINT comments_fk_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
@@ -218,8 +220,8 @@ CREATE TABLE post_hashtags (
     user_id INTEGER NOT NULL,
     post_id INTEGER NOT NULL,
     hashtag_id INTEGER NOT NULL,
-    PRIMARY KEY (user_id, post_id, hashtag_id),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, post_id, hashtag_id),
     CONSTRAINT post_hashtags_fk_user FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
     CONSTRAINT post_hashtags_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE,
     CONSTRAINT post_hashtags_fk_hashtag FOREIGN KEY (hashtag_id) REFERENCES hashtags (hashtag_id) ON DELETE CASCADE
@@ -244,6 +246,8 @@ CREATE TABLE post_metrics (
     post_id INTEGER NOT NULL,
     counter BIGINT NOT NULL DEFAULT 0,    
     type metric_type NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (post_id, type),
     CONSTRAINT post_metrics_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE,
     CONSTRAINT post_metrics_chk_positive_counter CHECK (counter >= 0)
@@ -261,6 +265,8 @@ CREATE TABLE comment_metrics (
     comment_id INTEGER NOT NULL,
     counter BIGINT NOT NULL DEFAULT 0,
     type metric_type NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (comment_id, type),
     CONSTRAINT comment_metrics_fk_comment FOREIGN KEY (comment_id) REFERENCES comments (comment_id) ON DELETE CASCADE,
     CONSTRAINT comment_metrics_chk_positive_counter CHECK (counter >= 0)
@@ -443,7 +449,8 @@ BEGIN
                 'created_at', TO_CHAR(c.created_at, 'YYYY-MM-DD HH24:MI:SS'),
                 'updated_at', TO_CHAR(c.updated_at, 'YYYY-MM-DD HH24:MI:SS'),
                 'metrics', get_comment_metrics(c.comment_id),
-                'replies', get_comment_children(c.comment_id)
+                'replies', get_comment_children(c.comment_id),
+                'parent_comment_id', c.parent_comment_id
             )
         ),
         '[]'::json
@@ -474,7 +481,8 @@ BEGIN
                 'created_at', TO_CHAR(c.created_at, 'YYYY-MM-DD HH24:MI:SS'),
                 'updated_at', TO_CHAR(c.updated_at, 'YYYY-MM-DD HH24:MI:SS'),
                 'metrics', get_comment_metrics(c.comment_id),
-                'replies', get_comment_children(c.comment_id)
+                'replies', get_comment_children(c.comment_id),
+                'parent_comment_id', c.parent_comment_id
             )
         ),
         '[]'::json

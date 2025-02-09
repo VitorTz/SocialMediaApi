@@ -1,42 +1,47 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime
 from src.models.metric import Metrics
 from src.models.comment import Comment
 
 
 class Post(BaseModel):
 
-    post_id: Optional[int] = None
+    post_id: int
     user_id: int
     title: str
     content: str
     language: str
-    status: Optional[str] = 'published'
-    is_pinned: Optional[bool] = False
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    metrics: Optional[Metrics] = Metrics()    
-    comments: Optional[list[Comment]] = []
+    status: str
+    is_pinned: bool
+    created_at: datetime
+    updated_at: datetime
+    metrics: Metrics
+    comments: List[Comment]
+
+
+class PostCreate(BaseModel):
+    
+    user_id: int
+    title: str
+    content: str
+    language: str
+    status: str
+    is_pinned: bool    
 
 
 class PostCollection(BaseModel):
 
-    posts: list[Post]
+    posts: List[Post]
     offset: int
     limit: int
     total: int
 
 
-class PostUnique(BaseModel):
-
-    post_id: int
-    user_id: Optional[int] = None
-
-
 class PostUpdate(BaseModel):
     
-    user_id: int
     post_id: int
+    user_id: int
     title: Optional[str] = None
     content: Optional[str] = None
     language: Optional[str] = None

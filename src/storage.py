@@ -4,15 +4,19 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 import cloudinary.exceptions
-from src.env import getenv
+from dotenv import load_dotenv
+import os
+
+
+load_dotenv()
 
 
 class StorageResponse:
     
     def __init__(
             self, 
-            success: bool, 
             content: dict[str, str] = {},
+            success: bool = True, 
             exception: Exception = None,
             err_msg: str = ""
         ):
@@ -44,7 +48,10 @@ class StorageResponse:
 class Storage(ABC):
 
     @abstractmethod
-    def __init__(self):
+    def __init__(self, root_folder: str):
+        self.__root_folder = root_folder
+        if not self.__root_folder.endswith('/'):
+            self.__root_folder += '/'
         self.open()
 
     @abstractmethod
@@ -55,32 +62,22 @@ class Storage(ABC):
     def close(self) -> None:
         pass
 
+    def get_user_folder(self, user_id: int) -> str:
+        return f"{self.__root_folder}users/{user_id}"
+    
+    def get_post_folder(self, post_id: int) -> str:
+        return f"{self.__root_folder}posts/{post_id}"
+    
     @abstractmethod
-    def create_user_folder(self, user_id: int) -> StorageResponse:
+    def mkdir(self, dir: str) -> bool:
         pass
 
     @abstractmethod
-    def delete_user_folder(self, user_id: int) -> StorageResponse:
-        pass
-
-    @abstractmethod
-    def create_post_folder(self, post_id: int) -> StorageResponse:
-        pass
-
-    @abstractmethod
-    def delete_post_folder(self, post_id: int) -> StorageResponse:
+    def rmdir(self, dir: str) -> bool:
         pass
     
     @abstractmethod
-    def upload_user_profile_image(self, user_id: int, image: UploadFile) -> StorageResponse:
-        pass
-    
-    @abstractmethod
-    def upload_user_cover_image(self, user_id: int, image: UploadFile) -> StorageResponse:
-        pass
-
-    @abstractmethod
-    def upload_post_image(self, post_id: int, image: UploadFile) -> StorageResponse:
+    def upload_image(self, image_folder: str, image: UploadFile) -> StorageResponse:
         pass
 
     @abstractmethod
@@ -95,71 +92,44 @@ class CloudinaryStorage(Storage):
     
     def open(self):
         cloudinary.config( 
-            cloud_name = getenv("CLOUD_NAME"), 
-            api_key = getenv("CLOUD_KEY"), 
-            api_secret = getenv("CLOUD_SECRET"),
+            cloud_name = os.getenv("CLOUD_NAME"), 
+            api_key = os.getenv("CLOUD_KEY"), 
+            api_secret = os.getenv("CLOUD_SECRET"),
             secure=True
         )
     
     def close(self):
         return super().close()
     
-    def create_user_folder(self, user_id) -> StorageResponse:
+    def mkdir(self, dir: str) -> StorageResponse:
         try:
-            r = cloudinary.api.create_folder(f"ougi_social/users/{user_id}")
-            return StorageResponse(True, r)       
+            r = cloudinary.api.create_folder(dir)
+            return StorageResponse(r)       
         except cloudinary.exceptions.Error as err:
-            return StorageResponse(False, exception=err, err_msg="create_user_folder")
+            return StorageResponse(False, exception=err, err_msg=f"could not create {dir}")
     
-    def delete_user_folder(self, user_id) -> StorageResponse:
+    def rmdir(self, dir: str) -> StorageResponse:
         try:
-            r = cloudinary.api.delete_resources_by_prefix(f"ougi_social/users/{user_id}/")
-            return StorageResponse(True, r)            
+            r = cloudinary.api.delete_resources_by_prefix(dir,)
+            r1 = cloudinary.api.delete_folder(dir)
+            return StorageResponse(r)
         except cloudinary.exceptions.Error as err:
-            return StorageResponse(False, exception=err, err_msg="delete_user_folder")
+            return StorageResponse(False, exception=err, err_msg="could not delete {dir}")        
     
-    def create_post_folder(self, post_id: int) -> StorageResponse:
+    def upload_image(self, image_folder: str, image: UploadFile) -> StorageResponse:
         try:
-            r = cloudinary.api.create_folder(f"ougi_social/posts/{post_id}")
-            return StorageResponse(True, r)            
-        except cloudinary.exceptions.Error as err:
-            return StorageResponse(False, exception=err, err_msg="create_post_folder")            
-
-    def delete_post_folder(self, post_id: int) -> StorageResponse:
-        try:
-            r = cloudinary.api.delete_resources_by_prefix(f"ougi_social/posts/{post_id}")
-            return StorageResponse(True, r)            
-        except cloudinary.exceptions.Error as err:
-            return StorageResponse(False, exception=err, err_msg="delete_post_folder")
-
-    def upload_user_profile_image(self, user_id: int, image: UploadFile) -> StorageResponse:
-        try:        
-            r = cloudinary.uploader.upload(image.file, folder=f"ougi_social/users/{user_id}")            
-            return StorageResponse(True, r)
+            r = cloudinary.uploader.upload(image.file, folder=image_folder)
+            return StorageResponse(r)
         except Exception as err:
-            return StorageResponse(False, exception=err, err_msg="upload_user_profile_image")            
-    
-    def upload_user_cover_image(self, user_id: int, image: UploadFile) -> StorageResponse:
-        try:        
-            r = cloudinary.uploader.upload(image.file, folder=f"ougi_social/users/{user_id}")
-            return StorageResponse(True, r)
-        except Exception as e:
-            return StorageResponse(False, exception=e, err_msg="cloudinary_upload_user_cover_image")            
-        
-    def upload_post_image(self, post_id, image: UploadFile) -> StorageResponse:
-        try:        
-            r = cloudinary.uploader.upload(image.file, folder=f"ougi_social/posts/{post_id}")
-            return StorageResponse(True, r)
-        except Exception as e:
-            return StorageResponse(False, exception=e, err_msg="cloudinary_upload_post_image")
+            return StorageResponse(False, exception=err, err_msg="upload_user_profile_image")
     
     def delete_image(self, public_id: str) -> StorageResponse:
         try:
             r = cloudinary.uploader.destroy(public_id, resource_type="image")
-            return StorageResponse(True, r)
+            return StorageResponse(r)
         except Exception as e:
             return StorageResponse(False, exception=e, err_msg="cloudinary_delete_image")
-    
+
 
 storage = None
 

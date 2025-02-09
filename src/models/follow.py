@@ -1,11 +1,18 @@
 from pydantic import BaseModel
-from typing import Optional
 from datetime import datetime
+
 
 class Follow(BaseModel):
 
     follower_id: int
-    followed_id: int    
+    followed_id: int
+    created_at: datetime
+
+
+class FollowCreate(BaseModel):
+    
+    follower_id: int
+    followed_id: int
 
 
 class Follower(BaseModel):
