@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse, Response
 from src.models.user import UserUnique
 from src.models.block import Block
 from typing import List
-from src import database
+from src.globals import globals_get_database
 
 
 blocks_router = APIRouter()
@@ -11,7 +11,7 @@ blocks_router = APIRouter()
 
 @blocks_router.get("/blocks/user", response_model=List[Block])
 def read_blocked_by_user(user: UserUnique) -> JSONResponse:
-    return database.db_read_fetchall(
+    return globals_get_database().read_all(
         """
             SELECT 
                 blocker_id,
@@ -28,7 +28,7 @@ def read_blocked_by_user(user: UserUnique) -> JSONResponse:
 
 @blocks_router.post("/blocks")
 def create_block(block: Block) -> Response:
-    return database.db_create(
+    return globals_get_database().create(
         """
             INSERT INTO blocks (
                 blocker_id,
@@ -45,7 +45,7 @@ def create_block(block: Block) -> Response:
 
 @blocks_router.delete("/blocks")
 def delete_block(block: Block) -> Response:
-    return database.db_delete(
+    return globals_get_database().delete(
         """
             DELETE FROM
                 blocks

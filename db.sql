@@ -16,7 +16,7 @@ CREATE TABLE users (
     email CITEXT UNIQUE NOT NULL,
     full_name VARCHAR (64) NOT NULL,
     hashed_password CHAR(60) NOT NULL,
-    bio TEXT DEFAULT "",    
+    bio TEXT,
     birthdate DATE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -26,20 +26,40 @@ CREATE TABLE users (
     CONSTRAINT users_chk_user_email_length CHECK (LENGTH(email) <= 255),
     CONSTRAINT users_chk_user_email_format CHECK (email ~* '^[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+)*@(?:(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,})$')
 );
+-- Facilita a busca por usernames
+CREATE INDEX idx_users_username_trgm ON users USING GIN (username gin_trgm_ops);
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+CREATE TABLE images (
+    image_id BIGSERIAL PRIMARY KEY NOT NULL,
+    image_url TEXT NOT NULL,
+    public_id TEXT NOT NULL
+) PARTITION BY HASH (image_id);
+CREATE TABLE images_0 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 0);
+CREATE TABLE images_1 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 1);
+CREATE TABLE images_2 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 2);
+CREATE TABLE images_3 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 3);
+CREATE TABLE images_4 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 4);
+CREATE TABLE images_5 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 5);
+CREATE TABLE images_6 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 6);
+CREATE TABLE images_7 PARTITION OF images FOR VALUES WITH (MODULUS 8, REMAINDER 7);
 
 -------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
-CREATE TABLE users_profile_photos (
+CREATE TABLE users_profile_images (
     user_id INTEGER PRIMARY KEY NOT NULL,
-    profile_photo TEXT,
-    cover_image TEXT,
-    CONSTRAINT fk_user_profile_photos_user_id FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-) PARTITION BY HASH (post_id);
-CREATE TABLE users_profile_photos_0 PARTITION OF users_profile_photos FOR VALUES WITH (MODULUS 4, REMAINDER 0);
-CREATE TABLE users_profile_photos_1 PARTITION OF users_profile_photos FOR VALUES WITH (MODULUS 4, REMAINDER 1);
-CREATE TABLE users_profile_photos_2 PARTITION OF users_profile_photos FOR VALUES WITH (MODULUS 4, REMAINDER 2);
-CREATE TABLE users_profile_photos_3 PARTITION OF users_profile_photos FOR VALUES WITH (MODULUS 4, REMAINDER 3);
+    profile_image_id BIGINT DEFAULT NULL,
+    cover_image_id BIGINT DEFAULT NULL, 
+    CONSTRAINT fk_user_profile_photos_user_id FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_profile_photos_profile_image_id FOREIGN KEY (profile_image_id) REFERENCES images(image_id) ON DELETE SET DEFAULT,
+    CONSTRAINT fk_user_profile_photos_cover_image_id FOREIGN KEY (cover_image_id) REFERENCES images(image_id) ON DELETE SET DEFAULT
+) PARTITION BY HASH (user_id);
+CREATE TABLE users_profile_images_0 PARTITION OF users_profile_images FOR VALUES WITH (MODULUS 4, REMAINDER 0);
+CREATE TABLE users_profile_images_1 PARTITION OF users_profile_images FOR VALUES WITH (MODULUS 4, REMAINDER 1);
+CREATE TABLE users_profile_images_2 PARTITION OF users_profile_images FOR VALUES WITH (MODULUS 4, REMAINDER 2);
+CREATE TABLE users_profile_images_3 PARTITION OF users_profile_images FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 
 -------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
@@ -52,12 +72,9 @@ CREATE TABLE languages (
 
 INSERT INTO  languages 
     (code, name, native_name)
-VALUES
-    ('zh', 'Chinese', '中文'),
-    ('es', 'Spanish', 'Español'),
+VALUES    
     ('en-US', 'English', 'English'),
-    ('pt-BR', 'Portuguese', 'Português'),    
-    ('ja', 'Japanese', '日本語');
+    ('pt-BR', 'Portuguese', 'Português');
 
 -------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
@@ -80,7 +97,7 @@ CREATE TABLE posts (
     content TEXT,
     language VARCHAR(8),
     status post_status_type NOT NULL,
-    is_pinned BOOLEAN NOT NULL DEFAULT false,
+    is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT posts_fk_user FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
@@ -95,17 +112,19 @@ CREATE INDEX idx_posts_published ON posts(status) WHERE status = 'published';
 CREATE INDEX idx_posts_published_created_at ON posts(created_at) WHERE status = 'published';
 CREATE INDEX idx_posts_updated_at ON posts(updated_at);
 CREATE INDEX idx_posts_user_status ON posts(user_id, status);
+CREATE INDEX idx_posts_title_fulltext_br ON posts USING GIN (to_tsvector('portuguese', title));
+CREATE INDEX idx_posts_title_fulltext_en ON posts USING GIN (to_tsvector('english', title));
 
 -------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
 CREATE TABLE post_images (    
     post_id INTEGER NOT NULL,
-    image_url TEXT NOT NULL,
+    image_id BIGINT NOT NULL,
     position INTEGER DEFAULT 0,
-    PRIMARY KEY (post_id, image_url, position),
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT post_images_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE
+    PRIMARY KEY (post_id, position),    
+    CONSTRAINT post_images_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE,
+    CONSTRAINT post_images_fk_image FOREIGN KEY (image_id) REFERENCES images (image_id) ON DELETE CASCADE
 ) PARTITION BY HASH (post_id);
 CREATE TABLE post_images_0 PARTITION OF post_images FOR VALUES WITH (MODULUS 4, REMAINDER 0);
 CREATE TABLE post_images_1 PARTITION OF post_images FOR VALUES WITH (MODULUS 4, REMAINDER 1);
@@ -128,6 +147,7 @@ CREATE TABLE post_likes_0 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, RE
 CREATE TABLE post_likes_1 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 1);
 CREATE TABLE post_likes_2 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 2);
 CREATE TABLE post_likes_3 PARTITION OF post_likes FOR VALUES WITH (MODULUS 4, REMAINDER 3);
+CREATE INDEX idx_post_likes_post ON post_likes(post_id);
 
 -------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
@@ -162,7 +182,7 @@ CREATE TABLE comments (
     CONSTRAINT comments_fk_post FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE,
     CONSTRAINT comments_fk_parent FOREIGN KEY (parent_comment_id) REFERENCES comments (comment_id) ON DELETE CASCADE
 );
-CREATE INDEX idx_comments ON comments (post_id);
+CREATE INDEX idx_comments_post ON comments (post_id);
 CREATE INDEX idx_comments_parent ON comments (parent_comment_id);
 CREATE INDEX idx_comments_path ON comments USING GIST (path);
 CREATE INDEX idx_comments_order ON comments (post_id, created_at);

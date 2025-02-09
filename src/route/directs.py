@@ -4,7 +4,8 @@ from src.models.user import UserUnique
 from src.models.direct import Direct, DirectUnique
 from src.models.message import Message, MessageUnique, MessageReadAll, MessageCollection
 from typing import List
-from src import database
+from src.globals import globals_get_database
+from src.database import DataBaseResponse
 
 
 directs_router = APIRouter()
@@ -12,7 +13,7 @@ directs_router = APIRouter()
 
 @directs_router.get("/directs/from_user", response_model=List[Direct])
 def get_user_direct_conversations(user: UserUnique) -> JSONResponse:
-    return database.db_read_fetchall(
+    return globals_get_database().read_all(
         """ 
             SELECT
                 conversation_id,
@@ -33,7 +34,7 @@ def get_user_direct_conversations(user: UserUnique) -> JSONResponse:
 @directs_router.post("/directs")
 def create_direct_conversation(direct: Direct) -> Response:
     users: list[int] = [str(x) for x in sorted([direct.user1_id, direct.user2_id])]
-    return database.db_create(
+    return globals_get_database().create(
         """
             INSERT INTO direct_conversations (
                 user1_id,
@@ -50,7 +51,7 @@ def create_direct_conversation(direct: Direct) -> Response:
 
 @directs_router.delete("/directs")
 def delete_direct_conversation(direct: DirectUnique) -> Response:
-    return database.db_delete(
+    return globals_get_database().delete(
         """
             DELETE FROM 
                 direct_conversations
@@ -65,7 +66,7 @@ def delete_direct_conversation(direct: DirectUnique) -> Response:
 
 @directs_router.get("/directs/messages", response_model=List[Message])
 def get_messages_from_direct_conversation(direct: DirectUnique) -> JSONResponse:
-    return database.db_read_fetchall(
+    return globals_get_database().read_all(
         """
             SELECT 
                 message_id,
@@ -90,7 +91,7 @@ def get_messages_from_direct_conversation(direct: DirectUnique) -> JSONResponse:
 
 @directs_router.post("/directs/messages")
 def create_message(message: Message) -> Response:
-    r: database.DataBaseResponse = database.db_create(
+    r: DataBaseResponse = globals_get_database().create(
         """
             INSERT INTO messages (
                 conversation_id,
@@ -112,7 +113,7 @@ def create_message(message: Message) -> Response:
     )
 
     if r.status_code == status.HTTP_201_CREATED:
-        database.db_update(
+        globals_get_database().update_one(
             """
                 UPDATE
                     direct_conversations
@@ -134,7 +135,7 @@ def create_message(message: Message) -> Response:
 
 @directs_router.put("/directs/messages")
 def update_message(message: Message) -> Response:
-    r: database.DataBaseResponse = database.db_update(
+    r: DataBaseResponse = globals_get_database().update_one(
         """
         UPDATE 
             messages 
@@ -158,7 +159,7 @@ def update_message(message: Message) -> Response:
     )
 
     if r.status_code == status.HTTP_201_CREATED:
-        database.db_update(
+        globals_get_database().update_one(
             """
                 UPDATE
                     direct_conversations
@@ -180,7 +181,7 @@ def update_message(message: Message) -> Response:
 
 @directs_router.post("/directs/messages/mark_read/one")
 def mark_message_as_readed(message: MessageUnique) -> Response:
-    return database.db_update(
+    return globals_get_database().update_one(
         """
         UPDATE 
             messages 
@@ -199,7 +200,7 @@ def mark_message_as_readed(message: MessageUnique) -> Response:
 
 @directs_router.post("/directs/messages/mark_read/all")
 def mark_all_messages_readed_by_user(message_read_all: MessageReadAll) -> Response:
-    return database.db_update_many(
+    return globals_get_database().update_all(
         """
             UPDATE 
                 messages
@@ -220,7 +221,7 @@ def mark_all_messages_readed_by_user(message_read_all: MessageReadAll) -> Respon
 
 @directs_router.post("/directs/messages/mark_read/some")
 def mark_some_messages_as_readed(messages: MessageCollection) -> Response:
-    return database.db_update_many(
+    return globals_get_database().update_all(
         """
             UPDATE 
                 messages 
@@ -241,7 +242,7 @@ def mark_some_messages_as_readed(messages: MessageCollection) -> Response:
 
 @directs_router.delete("/directs/messages")
 def delete_message(message: MessageUnique) -> Response:
-    return database.db_delete(
+    return globals_get_database().delete(
         """
             DELETE FROM 
                 messages

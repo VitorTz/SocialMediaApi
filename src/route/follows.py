@@ -3,7 +3,8 @@ from src.models.user import UserUnique
 from fastapi.responses import JSONResponse, Response
 from src.models.follow import Follow, Followed, Follower
 from typing import List
-from src import database
+from src.globals import globals_get_database
+from src.database import DataBaseResponse
 
 
 follows_route = APIRouter()
@@ -11,7 +12,7 @@ follows_route = APIRouter()
 
 @follows_route.get("/follows/followers/count", response_model=int)
 def count_followers(user: UserUnique) -> JSONResponse:
-    r: database.DataBaseResponse = database.db_read_fetchone(
+    r: DataBaseResponse = globals_get_database().read_one(
         """
             SELECT 
                 COUNT(*)
@@ -28,7 +29,7 @@ def count_followers(user: UserUnique) -> JSONResponse:
 
 @follows_route.get("/follows/followers", response_model=List[Follower])
 def read_followers(user: UserUnique) -> JSONResponse:
-    return database.db_read_fetchall(
+    return globals_get_database().read_all(
         """
             SELECT 
                 follower_id
@@ -43,7 +44,7 @@ def read_followers(user: UserUnique) -> JSONResponse:
 
 @follows_route.get("/follows/following/count", response_model=int)
 def count_following(user: UserUnique) -> JSONResponse:
-    r: database.DataBaseResponse = database.db_read_fetchone(
+    r: DataBaseResponse = globals_get_database().read_one(
         """
             SELECT 
                 COUNT(*)
@@ -60,7 +61,7 @@ def count_following(user: UserUnique) -> JSONResponse:
 
 @follows_route.get("/follows/following", response_model=List[Followed])
 def read_followings(user: UserUnique) -> JSONResponse:    
-    r: database.DataBaseResponse = database.db_read_fetchall(
+    r: DataBaseResponse = globals_get_database().read_all(
         """
             SELECT
                 followed_id
@@ -75,7 +76,7 @@ def read_followings(user: UserUnique) -> JSONResponse:
 
 @follows_route.post("/follows")
 def create_follow(follow: Follow) -> Response:
-    return database.db_create(
+    return globals_get_database().create(
         """
             INSERT INTO follows (
                 follower_id,
@@ -92,7 +93,7 @@ def create_follow(follow: Follow) -> Response:
 
 @follows_route.delete("/follows")
 def delete_follow(follow: Follow) -> Response:
-    return database.db_create(
+    return globals_get_database().delete(
         """
             DELETE FROM 
                 follows

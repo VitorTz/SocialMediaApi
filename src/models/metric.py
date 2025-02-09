@@ -29,3 +29,10 @@ class NumComments(BaseModel):
 class NumLikes(BaseModel):
 
     num_likes: int
+
+
+class UserMetrics(BaseModel):
+
+    posts: int    
+    followers: int
+    following: int

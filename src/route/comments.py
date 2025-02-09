@@ -1,9 +1,10 @@
-from fastapi import APIRouter, status, HTTPException
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter
+from fastapi.responses import Response
 from src.models.post import PostUnique
 from src.models.comment import Comment, CommentUnique, CommentUpdate
 from typing import List
-from src import database
+from src.database import DataBaseResponse
+from src.globals import globals_get_database
 
 
 comments_router = APIRouter()
@@ -11,7 +12,7 @@ comments_router = APIRouter()
 
 @comments_router.get("/comments/post/parent", response_model=List[Comment])
 def read_parent_comments_from_post(post: PostUnique):
-    return database.db_read_fetchall(
+    return globals_get_database().read_all(
         """
             SELECT 
                 comment_id,
@@ -33,7 +34,7 @@ def read_parent_comments_from_post(post: PostUnique):
     
 @comments_router.get("/comments/comment", response_model=Comment)
 def read_comment(comment: CommentUnique):
-    r: database.DataBaseResponse = database.db_read_fetchone(
+    r: DataBaseResponse = globals_get_database().read_one(
         """
             SELECT 
                 get_comment_children(%s) 
@@ -49,7 +50,7 @@ def read_comment(comment: CommentUnique):
 
 @comments_router.post("/comments")
 def create_comment(comment: Comment) -> Response:    
-    return database.db_create(
+    return globals_get_database().create(
         """
             INSERT INTO comments 
                 (user_id, post_id, content, parent_comment_id)
@@ -70,7 +71,7 @@ def create_comment(comment: Comment) -> Response:
 
 @comments_router.put("/comments")
 def update_comment(comment: CommentUpdate) -> Response:
-    return database.db_update(
+    return globals_get_database().update_one(
         """
             UPDATE comments SET
                 content = %s,
@@ -86,7 +87,7 @@ def update_comment(comment: CommentUpdate) -> Response:
 
 @comments_router.delete("/comments")
 def delete_comment(comment: CommentUnique) -> Response:
-    return database.db_delete(
+    return globals_get_database().delete(
         """
             DELETE FROM 
                 comments 

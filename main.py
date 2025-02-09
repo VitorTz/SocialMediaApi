@@ -1,7 +1,5 @@
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from src.database import open_db, close_db
 from src.route.users import users_router
 from src.route.posts import posts_router
 from src.route.comments import comments_router
@@ -10,18 +8,16 @@ from src.route.likes import likes_router
 from src.route.directs import directs_router
 from src.route.follows import follows_route
 from src.route.blocks import blocks_router
+from src.env import getenv
+from src.globals import globals_init, globals_close
 import uvicorn
-import os
-
-
-load_dotenv('.env')
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):    
-    open_db()
+    globals_init()
     yield
-    close_db()
+    globals_close()
 
 
 app = FastAPI(lifespan=lifespan, version="1.0.0")
@@ -37,11 +33,11 @@ app.include_router(follows_route, prefix="/api", tags=["follows"])
 app.include_router(blocks_router, prefix="/api", tags=["blocks"])
 
 
-def main() -> None:
+def main() -> None:    
     uvicorn.run(
         "main:app",
-        host=os.getenv("API_HOST"),
-        port=int(os.getenv("API_HOST_PORT")),
+        host=getenv("API_HOST"),
+        port=int(getenv("API_HOST_PORT")),
         reload=True
     )
 
