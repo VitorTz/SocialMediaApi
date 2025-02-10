@@ -88,7 +88,7 @@ class Storage(ABC):
 class CloudinaryStorage(Storage):
 
     def __init__(self):
-        super().__init__()
+        super().__init__(root_folder="ougi_social/")
     
     def open(self):
         cloudinary.config( 

@@ -156,7 +156,10 @@ def read_post_images(post: UniqueID):
 
 
 @images_router.post("/images/posts")
-def create_post_images(post_id: str = Form(), file: list[UploadFile] = File()):
+def create_post_images(
+    post_id: int = Query(), 
+    file: list[UploadFile] = File()
+):
     post_folder: str = get_storage().get_post_folder(post_id)
 
     for i, image_file in enumerate(file):        
@@ -180,10 +183,10 @@ def create_post_images(post_id: str = Form(), file: list[UploadFile] = File()):
                 RETURNING
                     post_id
             """,
-            (str(post_id), image_id, str(i), image_id)
+            (str(post_id), image_id, str(i))
         )
         if r.status_code != status.HTTP_201_CREATED:
-            return r
+            return r.response()
         
     return Response(status_code=status.HTTP_201_CREATED)
 

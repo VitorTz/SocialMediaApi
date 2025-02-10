@@ -1,6 +1,7 @@
 from fastapi import APIRouter, status, Query
 from fastapi.responses import Response
 from src.models.message import MessageCreate, Message, MessageUpdate, MessageReadAll, UserMessageList
+from src.models.direct import DirectConversation
 from src.models.unique import UniqueID
 from typing import List
 from src import database
@@ -195,4 +196,17 @@ def delete_message(message: UniqueID) -> Response:
                 message_id;
         """,
         (str(message.id), )
+    ).response()
+
+
+@messages_router.delete("/directs/messages/clear")
+def delete_all_messages_from_conversation(conversation: UniqueID):
+    return database.db_delete(
+        """
+            DELETE FROM 
+                messages
+            WHERE
+                conversation_id = %s;
+        """,
+        (str(conversation.id), )
     ).response()

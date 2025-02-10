@@ -7,6 +7,7 @@ from src.route.metrics import metrics_router
 from src.route.likes import likes_router
 from src.route.directs import directs_router
 from src.route.messages import messages_router
+from src.route.images import images_router
 from src.route.follows import follows_route
 from src.route.blocks import blocks_router
 from src.route.feed import feed_router
@@ -41,6 +42,7 @@ app.include_router(likes_router, prefix="/api", tags=["likes"])
 app.include_router(metrics_router, prefix="/api", tags=["metrics"])
 app.include_router(directs_router, prefix="/api", tags=["directs"])
 app.include_router(messages_router, prefix="/api", tags=["messages"])
+app.include_router(images_router, prefix="/api", tags=["images"])
 app.include_router(follows_route, prefix="/api", tags=["follows"])
 app.include_router(blocks_router, prefix="/api", tags=["blocks"])
 app.include_router(feed_router, prefix="/api", tags=["feed"])

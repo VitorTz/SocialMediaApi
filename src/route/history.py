@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query
 from src.models.post import Post
 from src.models.unique import UniqueID
-from src.models.search import SearchCreate, Search
+from src.models.search import SearchCreate, Search, SearchDelete
 from typing import List, Optional
 from src import database
 
@@ -15,7 +15,7 @@ def read_user_post_view_history(
     limit: Optional[int] = Query(default=20),
     offset: Optional[int] = Query(default=0)
 ):
-    return database().db_read_all(
+    return database.db_read_all(
         """
             SELECT 
                 p.post_id,
@@ -29,7 +29,7 @@ def read_user_post_view_history(
                 p.status,
                 p.is_pinned,                
                 TO_CHAR(p.created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at,
-                TO_CHAR(p.updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at,                
+                TO_CHAR(p.updated_at, 'YYYY-MM-DD HH24:MI:SS') as updated_at,
                 get_post_metrics(p.post_id) AS metrics
             FROM 
                 user_viewed_posts uv
@@ -48,12 +48,33 @@ def read_user_post_view_history(
     ).json_response()
 
 
-@history_router.get("/history/user/search", response_model=List[str])
+@history_router.post("/history/user/posts")
+def mark_post_as_readed(user: UniqueID, post_id: int = Query):
+    return database.db_create(
+        """
+            INSERT INTO user_viewed_posts (
+                user_id,
+                post_id
+            )
+            VALUES
+                (%s, %s)
+            ON CONFLICT
+                (user_id, post_id)
+            DO NOTHING
+            RETURNING
+                user_id
+        """,
+        (str(user.id), str(post_id))
+    ).response()
+
+
+@history_router.get("/history/user/search", response_model=List[Search])
 def read_user_search_history(user: UniqueID):
     return database.db_read_all(
         """
             SELECT 
-                search_query, searched_at
+                search_query,
+                TO_CHAR(searched_at, 'YYYY-MM-DD HH24:MI:SS') as searched_at                
             FROM 
                 user_search_history
             WHERE 
@@ -84,7 +105,7 @@ def register_user_search(search: SearchCreate):
 
 
 @history_router.delete("/history/user/search")
-def delete_user_search(search: Search):
+def delete_user_search(search: SearchDelete):
     return database.db_delete(
         """
             DELETE FROM 
@@ -92,7 +113,21 @@ def delete_user_search(search: Search):
             WHERE 
                 user_id = %s AND 
                 search_query = %s
-            RETURNING;
+            RETURNING
+                user_id;
         """,
-        (search.search_query, )
+        (search.user_id, search.search_query)
+    ).response()
+
+
+@history_router.delete("/history/user/search/clear")
+def clear_user_search_history(user: UniqueID):
+    return database.db_delete(
+        """
+            DELETE FROM 
+                user_search_history
+            WHERE 
+                user_id = %s;            
+        """,
+        (str(user.id), )
     ).response()

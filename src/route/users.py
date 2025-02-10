@@ -93,7 +93,7 @@ def create_user(user: UserCreate, background_tasks: BackgroundTasks) -> Response
 
 @users_router.put("/users")
 async def update_user(user: UserUpdate) -> Response:
-    return database().db_update(
+    return database.db_update(
         """
             UPDATE 
                 users 

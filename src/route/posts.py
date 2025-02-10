@@ -135,8 +135,8 @@ def update_post(post: PostUpdate, background_tasks: BackgroundTasks) -> Response
     background_tasks.add_task(
         util.register_post_hashtags,
         post.user_id,
-        post.content,
-        r.content['post_id']
+        r.content['post_id'],
+        post.content
     )
 
     return r.response()

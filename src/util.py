@@ -35,6 +35,8 @@ def create_new_image(image_dir: str, image: UploadFile) -> str:
             )
             VALUES 
                 (%s, %s)
+            RETURNING
+                image_id
         """,
         (strg_image.content['secure_url'], strg_image.content['public_id'])
     )
@@ -54,9 +56,8 @@ def register_post_hashtags(user_id: int, post_id: int, content: str) -> DataBase
             for tag in hashtags:
                 cur.execute(
                     """
-                        INSERT INTO hashtags (
-                            name
-                        )
+                        INSERT INTO hashtags 
+                            (name)
                         VALUES 
                             (%s)
                         ON CONFLICT 

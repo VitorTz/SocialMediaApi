@@ -2,7 +2,6 @@ from fastapi import APIRouter, status, Query
 from fastapi.responses import JSONResponse
 from src.models.unique import UniqueID
 from src.models.hashtag import HashtagCount
-from src.models.comment import CommentUnique
 from src.models.metric import Metrics, UserProfileMetrics
 from typing import List, Optional
 from src import database
@@ -15,7 +14,7 @@ metrics_router = APIRouter()
 ##################################################################
 
 @metrics_router.get("/metrics/posts", response_model=Metrics)
-def get_post_metrics(post: UniqueID) -> JSONResponse:    
+def get_post_metrics(post: UniqueID):    
     r: database.DataBaseResponse = database.db_read_one(
         """
             SELECT 
@@ -68,9 +67,9 @@ def read_user_metrics(user: UniqueID):
     )    
     return JSONResponse(
         content={
-            "posts": posts['count'],            
-            "followers": followers['count'],
-            "following": following['count']
+            "posts": posts.content['count'],            
+            "followers": followers.content['count'],
+            "following": following.content['count']
         },
         status_code=status.HTTP_200_OK
     )
@@ -81,14 +80,14 @@ def read_user_metrics(user: UniqueID):
 ##################################################################
 
 @metrics_router.get("/metrics/comments", response_model=Metrics)
-def get_comment_metrics(comment: CommentUnique):    
+def get_comment_metrics(comment: UniqueID):    
     r: database.DataBaseResponse = database.db_read_one(
         """
             SELECT 
                 get_comment_metrics(%s)
             AS metrics;
         """,
-        (str(comment.comment_id), )
+        (str(comment.id), )
     )
     r.content = r.content['metrics']
     return r.json_response()
@@ -115,7 +114,7 @@ def get_hashtags_used_by_user(user: UniqueID):
             GROUP BY 
                 h.name
             ORDER BY 
-                counter DESC;
+                count DESC;
         """,
         (str(user.id), )
     ).json_response()
@@ -123,7 +122,7 @@ def get_hashtags_used_by_user(user: UniqueID):
 
 @metrics_router.get("/metrics/trending/hashtags", response_model=List[HashtagCount])
 def get_most_used_hashtags(day_interval: Optional[int] = Query(default=1)):
-    return database.read_all(
+    return database.db_read_all(
         """
             SELECT
                 h.name,
@@ -138,7 +137,7 @@ def get_most_used_hashtags(day_interval: Optional[int] = Query(default=1)):
             GROUP BY 
                 h.name
             ORDER BY 
-                counter
+                count
             DESC;
         """,
         (str(day_interval), )
